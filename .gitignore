@@ -1,0 +1,63 @@
+# 1. DATOS SINTÉTICOS Y EXPORTACIONES (Big Data)
+# Ignoramos la carpeta de datos para evitar subir millones de registros que pueden ser generados localmente
+/data/
+*.csv
+*.json
+*.parquet
+# Formatos específicos de grafos
+*.graphml
+*.gml
+*.gephi
+
+
+# 2. SEGURIDAD Y CREDENCIALES
+# Evita exponer contraseñas de Neo4j y URIs de conexión
+.env
+.env.*
+
+
+# 3. PYTHON Y ENTORNOS VIRTUALES
+# Caché de compilación de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Directorios de entornos virtuales
+venv/
+.venv/
+env/
+/lib/
+/bin/
+/share/
+pyvenv.cfg
+
+
+# 4. JUPYTER NOTEBOOKS Y DATA SCIENCE
+# Archivos temporales de los notebooks de experimentación matemática
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+
+# 5. LOGS Y BENCHMARKING COMPUTACIONAL
+# Archivos generados durante la monitorización de rendimiento
+*.log
+/logs/
+benchmarking_results/
+
+
+# 6. IDEs Y SISTEMA OPERATIVO
+# Configuraciones locales de editores de código (VS Code, PyCharm, etc.)
+.vscode/
+.idea/
+*.swp
+.github/agents/*
+
+# Archivos basura del Sistema Operativo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
