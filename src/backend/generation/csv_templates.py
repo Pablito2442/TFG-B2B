@@ -5,32 +5,45 @@ from pathlib import Path
 
 CSV_SCHEMAS: dict[str, list[str]] = {
 	"companies.csv": [
-		"company_id",
-		"legal_name",
-		"tax_id",
-		"country",
-		"region",
-		"city",
-		"industry_code",
-		"size_band",
-		"created_at",
-		"is_active",
-	],
+        "company_id",
+        "legal_name",
+        "tax_id",
+        "edi_endpoint",
+        "node_role",
+        "country",
+        "region",
+        "city",
+        "latitude",
+        "longitude",
+        "industry_code",
+        "size_band",
+        "baseline_revenue",
+        "created_at",
+        "is_active",
+    ],
+ 
 	"products.csv": [
 		"product_id",
 		"sku",
+        "hs_code",
 		"name",
 		"category",
 		"unit",
+        "base_price",
+        "lead_time_baseline_days",
 		"criticality",
 		"is_substitutable",
 	],
+ 
 	"documents.csv": [
 		"document_id",
 		"doc_type",
+        "edi_standard",
+        "version_number",
 		"issue_date",
 		"due_date",
 		"status",
+        "discrepancy_flag",
 		"currency",
 		"gross_amount",
 		"tax_amount",
@@ -38,36 +51,55 @@ CSV_SCHEMAS: dict[str, list[str]] = {
 		"payment_terms_days",
 		"created_at",
 	],
+ 
 	"rel_supplies.csv": [
 		"supplier_company_id",
 		"buyer_company_id",
 		"since_date",
 		"lead_time_days",
 		"reliability_score",
+        "agreed_volume_baseline",
+        "is_exclusive_supplier",
+        "payment_terms_agreed",
 		"contract_type",
 	],
+ 
 	"rel_issues.csv": [
 		"issuer_company_id",
 		"document_id",
+        "transmission_timestamp",
+        "transmission_channel",
+        "digital_signature_valid",
 	],
+ 
 	"rel_sent_to.csv": [
 		"document_id",
 		"receiver_company_id",
+        "reception_timestamp",
+        "acknowledgement_status",
+        "routing_endpoint",
 	],
+ 
 	"rel_contains.csv": [
 		"document_id",
 		"product_id",
 		"line_id",
+        "lot_number",
 		"quantity",
 		"unit_price",
 		"discount_pct",
 		"line_amount",
+        "line_status",
+        "expected_delivery_date"
 	],
+ 
 	"rel_fulfills.csv": [
 		"from_document_id",
 		"to_document_id",
 		"fulfillment_ratio",
 		"fulfilled_amount",
+        "reconciliation_status",
+        "latency_days",
 	],
 }
 

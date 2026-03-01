@@ -7,6 +7,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 from src.backend.config import Settings, load_settings
+from src.backend.generation.companies_synthesizer import synthesize_companies_csv
 from src.backend.generation.csv_templates import create_csv_templates, get_available_targets
 
 
@@ -21,16 +22,23 @@ def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
 	return target
 
 
-def run_generate(settings: Settings, csv_target: str) -> Path:
+def run_generate(settings: Settings, csv_target: str, rows: int) -> Path:
 	created_csvs = create_csv_templates(settings.data_synthetic_dir, csv_target)
+	companies_rows = 0
+	for csv_path in created_csvs:
+		if csv_path.name == "companies.csv":
+			synthesize_companies_csv(csv_path, rows=rows, seed=settings.seed)
+			companies_rows = rows
 	payload = {
 		"step": "generate",
 		"status": "ok",
 		"timestamp_utc": _now_iso(),
 		"seed": settings.seed,
+		"rows": rows,
 		"csv_target": csv_target,
+		"companies_rows_generated": companies_rows,
 		"generated_csv_files": [str(path) for path in created_csvs],
-		"message": "Plantillas CSV generadas en data/synthetic.",
+		"message": "CSV generados. companies.csv incluye datos sintéticos cuando aplica.",
 	}
 	return _write_step_artifact(settings, "generate", payload)
 
@@ -59,7 +67,7 @@ def run_analyze(settings: Settings) -> Path:
 
 
 def run_all(settings: Settings) -> list[Path]:
-	artifacts = [run_generate(settings, "all"), run_load(settings), run_analyze(settings)]
+	artifacts = [run_generate(settings, "all", 1000), run_load(settings), run_analyze(settings)]
 	summary = {
 		"step": "all",
 		"status": "ok",
@@ -88,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
 			"Valores: all, " + ", ".join(get_available_targets())
 		),
 	)
+	parser.add_argument(
+		"--rows",
+		type=int,
+		default=1000,
+		help="Número de filas sintéticas para companies.csv cuando aplique",
+	)
 	return parser
 
 
@@ -104,7 +118,7 @@ def main() -> None:
 	settings.ensure_data_directories()
 
 	if args.command == "generate":
-		artifact = run_generate(settings, args.csv)
+		artifact = run_generate(settings, args.csv, args.rows)
 		print(f"[OK] generate -> {artifact}")
 	elif args.command == "load":
 		artifact = run_load(settings)
