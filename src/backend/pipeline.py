@@ -9,6 +9,7 @@ from pathlib import Path
 from src.backend.config import Settings, load_settings
 from src.backend.generation.companies_synthesizer import synthesize_companies_csv
 from src.backend.generation.csv_templates import create_csv_templates, get_available_targets
+from src.backend.generation.supplies_synthesizer import synthesize_rel_supplies_csv
 
 
 def _now_iso() -> str:
@@ -21,24 +22,44 @@ def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
 	target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 	return target
 
-
-def run_generate(settings: Settings, csv_target: str, rows: int) -> Path:
+def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree: int) -> Path:
 	created_csvs = create_csv_templates(settings.data_synthetic_dir, csv_target)
 	companies_rows = 0
+	rel_supplies_rows = 0
+	cities_csv_path = settings.data_raw_dir / "worldcities.csv"
+	companies_csv_path = settings.data_synthetic_dir / "companies.csv"
+
 	for csv_path in created_csvs:
 		if csv_path.name == "companies.csv":
-			synthesize_companies_csv(csv_path, rows=rows, seed=settings.seed)
+			synthesize_companies_csv(
+				output_file=csv_path,
+				cities_csv=cities_csv_path,
+				rows=rows,
+				seed=settings.seed,
+			)
 			companies_rows = rows
+		if csv_path.name == "rel_supplies.csv":
+			result_path = synthesize_rel_supplies_csv(
+				output_file=csv_path,
+				companies_csv=companies_csv_path,
+				avg_out_degree=avg_out_degree,
+				seed=settings.seed,
+			)
+			with result_path.open("r", encoding="utf-8", newline="") as csv_file:
+				rel_supplies_rows = max(sum(1 for _ in csv_file) - 1, 0)
+
 	payload = {
 		"step": "generate",
 		"status": "ok",
 		"timestamp_utc": _now_iso(),
 		"seed": settings.seed,
 		"rows": rows,
+		"avg_out_degree": avg_out_degree,
 		"csv_target": csv_target,
 		"companies_rows_generated": companies_rows,
+		"rel_supplies_rows_generated": rel_supplies_rows,
 		"generated_csv_files": [str(path) for path in created_csvs],
-		"message": "CSV generados. companies.csv incluye datos sintéticos cuando aplica.",
+		"message": "CSV generados. companies.csv y rel_supplies.csv incluyen datos sintéticos cuando aplica.",
 	}
 	return _write_step_artifact(settings, "generate", payload)
 
@@ -67,7 +88,7 @@ def run_analyze(settings: Settings) -> Path:
 
 
 def run_all(settings: Settings) -> list[Path]:
-	artifacts = [run_generate(settings, "all", 1000), run_load(settings), run_analyze(settings)]
+	artifacts = [run_generate(settings, "all", 1000, 3), run_load(settings), run_analyze(settings)]
 	summary = {
 		"step": "all",
 		"status": "ok",
@@ -102,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
 		default=1000,
 		help="Número de filas sintéticas para companies.csv cuando aplique",
 	)
+	parser.add_argument(
+		"--avg-out-degree",
+		type=int,
+		default=3,
+		help="Grado medio de salida para generar rel_supplies.csv cuando aplique",
+	)
 	return parser
 
 
@@ -118,7 +145,7 @@ def main() -> None:
 	settings.ensure_data_directories()
 
 	if args.command == "generate":
-		artifact = run_generate(settings, args.csv, args.rows)
+		artifact = run_generate(settings, args.csv, args.rows, args.avg_out_degree)
 		print(f"[OK] generate -> {artifact}")
 	elif args.command == "load":
 		artifact = run_load(settings)

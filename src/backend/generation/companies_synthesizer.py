@@ -1,146 +1,164 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta, UTC
 from pathlib import Path
+from faker import Faker
 
+ISO_TO_LOCALE = {
+    # UE 27
+    'AT': 'de_AT', 'BE': 'nl_BE', 'BG': 'bg_BG', 'HR': 'hr_HR', 
+    'CY': 'el_GR', 'CZ': 'cs_CZ', 'DK': 'da_DK', 'EE': 'et_EE', 
+    'FI': 'fi_FI', 'FR': 'fr_FR', 'DE': 'de_DE', 'GR': 'el_GR', 
+    'HU': 'hu_HU', 'IE': 'en_IE', 'IT': 'it_IT', 'LV': 'lv_LV', 
+    'LT': 'lt_LT', 'LU': 'fr_FR', 'MT': 'en_GB', 'NL': 'nl_NL', 
+    'PL': 'pl_PL', 'PT': 'pt_PT', 'RO': 'ro_RO', 'SK': 'sk_SK', 
+    'SI': 'sl_SI', 'ES': 'es_ES', 'SE': 'sv_SE', 'GB': 'en_GB', 
+    'CH': 'de_CH', 'NO': 'no_NO', 'IS': 'is_IS', 'LI': 'de_DE',
+    'BA': 'bs_BA', 'AL': 'sq_AL', 'MC': 'fr_FR'
+}
+
+# Extraemos los locales únicos del diccionario
+UNIQUE_LOCALES = list(set(ISO_TO_LOCALE.values()))
+
+# Inicializamos Faker con todos los locales europeos necesarios
+fake = Faker(UNIQUE_LOCALES)
 
 @dataclass(frozen=True)
 class CityPoint:
-	country: str
-	region: str
-	city: str
-	lat: float
-	lon: float
+    country: str
+    region: str
+    city: str
+    lat: float
+    lon: float
+    population: int
 
-
-CITY_POINTS: list[CityPoint] = [
-	CityPoint("ES", "Madrid", "Madrid", 40.4168, -3.7038),
-	CityPoint("ES", "Catalonia", "Barcelona", 41.3874, 2.1686),
-	CityPoint("ES", "Valencian Community", "Valencia", 39.4699, -0.3763),
-	CityPoint("PT", "Lisboa", "Lisbon", 38.7223, -9.1393),
-	CityPoint("PT", "Porto", "Porto", 41.1579, -8.6291),
-	CityPoint("FR", "Île-de-France", "Paris", 48.8566, 2.3522),
-	CityPoint("DE", "Bavaria", "Munich", 48.1351, 11.5820),
-	CityPoint("IT", "Lombardy", "Milan", 45.4642, 9.1900),
-	CityPoint("NL", "North Holland", "Amsterdam", 52.3676, 4.9041),
-]
-
+# --- CONFIGURACIÓN TOPOLÓGICA Y DE NEGOCIO ---
 INDUSTRY_CODES = ["C10", "C20", "C25", "C28", "G46", "H52", "J62", "M70"]
 SIZE_BANDS = ["micro", "pyme", "mid", "enterprise"]
 NODE_ROLES = ["SUPPLIER", "BUYER", "HYBRID"]
 ROLE_WEIGHTS = [0.25, 0.25, 0.50]
 SIZE_WEIGHTS = [0.40, 0.35, 0.20, 0.05]
 
-NAME_PREFIX = ["Iber", "Euro", "Nova", "Vertex", "Global", "Atlas", "Prime", "Delta"]
-NAME_CORE = ["Supply", "Logistics", "Trade", "Components", "Systems", "Industries", "Foods", "Pharma"]
-NAME_SUFFIX = ["SL", "SA", "GmbH", "BV", "SAS", "SRL", "Lda"]
+# Set de acceso O(1) con los códigos ISO de los países objetivo (Espacio Europeo)
+EU_ISO_CODES = {
+    # UE 27
+    'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 
+    'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 
+    'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'GB', 'CH', 'NO', 
+    'IS', 'LI', 'BA', 'AL', 'MC'
+}
 
-
-def _tax_id(country: str, rng: random.Random) -> str:
-	if country == "ES":
-		return f"ES{rng.randint(10_000_000, 99_999_999)}{rng.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ')}"
-	return f"{country}{rng.randint(100_000_000, 999_999_999)}"
-
-
-def _company_name(rng: random.Random) -> str:
-	return f"{rng.choice(NAME_PREFIX)} {rng.choice(NAME_CORE)} {rng.choice(NAME_SUFFIX)}"
-
+def load_eu_cities(csv_path: Path) -> tuple[list[CityPoint], list[int]]:
+    """
+    Carga el dataset geográfico y filtra estrictamente las ciudades europeas,
+    extrayendo sus pesos poblacionales para mantener una topología Scale-Free espacial.
+    """
+    eu_cities = []
+    eu_weights = []
+    
+    with csv_path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            iso = row["iso2"].upper()
+            
+            # Filtrado estricto en la ingesta del catálogo de ciudades
+            if iso in EU_ISO_CODES:
+                pop = int(float(row.get("population", 50000) or 50000))
+                
+                city = CityPoint(
+                    country=iso,
+                    region=row["admin_name"],
+                    city=row["city"],
+                    lat=float(row["lat"]),
+                    lon=float(row["lng"]),
+                    population=pop
+                )
+                
+                eu_cities.append(city)
+                eu_weights.append(pop)
+                
+    if not eu_cities:
+        raise ValueError("No se encontraron ciudades europeas en el dataset proporcionado.")
+        
+    return eu_cities, eu_weights
 
 def _baseline_revenue(size_band: str, rng: random.Random) -> float:
-	ranges = {
-		"micro": (50_000, 450_000),
-		"pyme": (450_000, 8_000_000),
-		"mid": (8_000_000, 80_000_000),
-		"enterprise": (80_000_000, 600_000_000),
-	}
-	low, high = ranges[size_band]
-	return round(rng.uniform(low, high), 2)
+    """Calcula el volumen de facturación base según el estrato de la empresa."""
+    ranges = {
+        "micro": (50_000, 450_000),
+        "pyme": (450_000, 8_000_000),
+        "mid": (8_000_000, 80_000_000),
+        "enterprise": (80_000_000, 600_000_000),
+    }
+    low, high = ranges[size_band]
+    return round(rng.uniform(low, high), 2)
 
+def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, seed: int) -> Path:
+    if rows <= 0:
+        raise ValueError("El número de filas debe ser > 0")
 
-def _created_at(rng: random.Random) -> str:
-	start = datetime.now(UTC) - timedelta(days=365 * 8)
-	offset_days = rng.randint(0, 365 * 8)
-	date_value = start + timedelta(days=offset_days)
-	return date_value.isoformat()
+    rng = random.Random(seed)
+    Faker.seed(seed)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Carga de la geografía (ahora garantizada 100% europea)
+    cities, population_weights = load_eu_cities(cities_csv)
 
-def synthesize_companies_csv(output_file: Path, rows: int, seed: int) -> Path:
-	if rows <= 0:
-		raise ValueError("rows debe ser > 0")
+    fieldnames = [
+        "company_id", "legal_name", "tax_id", "edi_endpoint", "node_role",
+        "country", "region", "city", "latitude", "longitude",
+        "industry_code", "size_band", "baseline_revenue", "created_at", "is_active",
+    ]
+    
+    with output_file.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
 
-	rng = random.Random(seed)
-	output_file.parent.mkdir(parents=True, exist_ok=True)
+        for index in range(1, rows + 1):
+            # Selección de ciudad basada en densidad de población (Scale-Free geography)
+            city_point = rng.choices(cities, weights=population_weights, k=1)[0]
+            size_band = rng.choices(SIZE_BANDS, weights=SIZE_WEIGHTS, k=1)[0]
+            
+            # Buscamos el locale correspondiente al país, usando 'en_US' como fallback de seguridad
+            locale = ISO_TO_LOCALE.get(city_point.country, 'en_US')
+            
+            record = {
+                "company_id": f"COMP-{index:07d}",
+                # AQUI ESTÁ LA MAGIA: Usamos fake[locale] en lugar de fake
+                "legal_name": fake[locale].company(),
+                "tax_id": f"{city_point.country}{rng.randint(10000000, 99999999)}",
+                "edi_endpoint": f"as2://edi.comp-{index:07d}.b2b.local/inbox",
+                "node_role": rng.choices(NODE_ROLES, weights=ROLE_WEIGHTS, k=1)[0],
+                "country": city_point.country,
+                "region": city_point.region,
+                "city": city_point.city,
+                "latitude": round(city_point.lat + rng.uniform(-0.01, 0.01), 6),
+                "longitude": round(city_point.lon + rng.uniform(-0.01, 0.01), 6),
+                "industry_code": rng.choice(INDUSTRY_CODES),
+                "size_band": size_band,
+                "baseline_revenue": _baseline_revenue(size_band, rng),
+                "created_at": fake[locale].date_time_between(start_date='-8y', end_date='now').isoformat(),
+                "is_active": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
+            }
+            writer.writerow(record)
 
-	fieldnames = [
-		"company_id",
-		"legal_name",
-		"tax_id",
-		"edi_endpoint",
-		"node_role",
-		"country",
-		"region",
-		"city",
-		"latitude",
-		"longitude",
-		"industry_code",
-		"size_band",
-		"baseline_revenue",
-		"created_at",
-		"is_active",
-	]
-
-	with output_file.open("w", encoding="utf-8", newline="") as csv_file:
-		writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-		writer.writeheader()
-
-		for index in range(1, rows + 1):
-			city_point = rng.choice(CITY_POINTS)
-			size_band = rng.choices(SIZE_BANDS, weights=SIZE_WEIGHTS, k=1)[0]
-			record = {
-				"company_id": f"COMP-{index:07d}",
-				"legal_name": _company_name(rng),
-				"tax_id": _tax_id(city_point.country, rng),
-				"edi_endpoint": f"as2://edi.comp-{index:07d}.b2b.local/inbox",
-				"node_role": rng.choices(NODE_ROLES, weights=ROLE_WEIGHTS, k=1)[0],
-				"country": city_point.country,
-				"region": city_point.region,
-				"city": city_point.city,
-				"latitude": round(city_point.lat + rng.uniform(-0.15, 0.15), 6),
-				"longitude": round(city_point.lon + rng.uniform(-0.15, 0.15), 6),
-				"industry_code": rng.choice(INDUSTRY_CODES),
-				"size_band": size_band,
-				"baseline_revenue": _baseline_revenue(size_band, rng),
-				"created_at": _created_at(rng),
-				"is_active": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
-			}
-			writer.writerow(record)
-
-	return output_file
-
+    return output_file
 
 def build_parser() -> argparse.ArgumentParser:
-	parser = argparse.ArgumentParser(description="Generador sintético para companies.csv")
-	parser.add_argument("--rows", type=int, default=1000, help="Número de empresas a sintetizar")
-	parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
-	parser.add_argument(
-		"--output",
-		type=str,
-		default="data/synthetic/companies.csv",
-		help="Ruta de salida del CSV de companies",
-	)
-	return parser
-
+    parser = argparse.ArgumentParser(description="Generador sintético para companies.csv (Red 100% Europea)")
+    parser.add_argument("--rows", type=int, default=1000, help="Número de empresas a sintetizar")
+    parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
+    parser.add_argument("--output", type=str, default="data/synthetic/companies.csv", help="Ruta de salida del CSV de companies")
+    return parser
 
 def main() -> None:
-	args = build_parser().parse_args()
-	target = Path(args.output)
-	result = synthesize_companies_csv(target, rows=args.rows, seed=args.seed)
-	print(f"[OK] companies synthesized -> {result}")
-
+    args = build_parser().parse_args()
+    target = Path(args.output)
+    cities_source = Path("data/raw/worldcities.csv")
+    result = synthesize_companies_csv(target, cities_source, rows=args.rows, seed=args.seed)
+    print(f"[OK] {args.rows} empresas europeas sintetizadas -> {result}")
 
 if __name__ == "__main__":
-	main()
+    main()
