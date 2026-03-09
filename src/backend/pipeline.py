@@ -29,7 +29,7 @@ def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
     return target
 
 
-def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree: int) -> Path:
+def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_supplies: int, avg_degree_documents: int) -> Path:
     """
     Fase 1: Generación de datos sintéticos.
     Orquesta la creación de los CSVs. Tiene una dependencia en cascada estricta:
@@ -39,6 +39,13 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree:
     """
     # Creación de los CSVs para el target indicado (puede ser "all" o un CSV específico)
     created_csvs = create_csv_templates(settings.data_synthetic_dir, csv_target)
+    orden_estricto = {
+        "companies.csv": 1,
+        "rel_supplies.csv": 2,
+        "documents.csv": 3
+    }
+    # Reordenacion de la lista para cumplir las dependencias en cascada.
+    created_csvs.sort(key=lambda path: orden_estricto.get(path.name, 99))
     
     # Parametrización de filas generadas para cada CSV
     companies_rows = 0
@@ -62,7 +69,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree:
             result_path = synthesize_rel_supplies_csv(
                 output_file=csv_path,
                 companies_csv=companies_csv_path,
-                avg_out_degree=avg_out_degree,
+                avg_out_degree=avg_degree_rel_supplies,
                 seed=settings.seed,
             )
             with result_path.open("r", encoding="utf-8", newline="") as csv_file:
@@ -72,8 +79,8 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree:
                 output_file=csv_path,
                 companies_csv=companies_csv_path,
                 rel_supplies_csv=rel_supplies_csv_path,
-                rows=rows,
                 seed=settings.seed,
+                avg_out_degree=avg_degree_documents,
             )
             with result_path.open("r", encoding="utf-8", newline="") as csv_file:
                 documents_rows = max(sum(1 for _ in csv_file) - 1, 0)
@@ -85,7 +92,8 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_out_degree:
         "timestamp_utc": _now_iso(),
         "seed": settings.seed,
         "rows": rows,
-        "avg_out_degree": avg_out_degree,
+        "avg_degree_rel_supplies": avg_degree_rel_supplies,
+        "avg_degree_documents": avg_degree_documents,
         "csv_target": csv_target,
         "companies_rows_generated": companies_rows,
         "rel_supplies_rows_generated": rel_supplies_rows,
@@ -133,7 +141,7 @@ def run_all(settings: Settings) -> list[Path]:
     Asegura que las fases se ejecuten en el orden lógico estricto.
     """
     # Ejecución secuencial. Hardcodeamos rows=1000 y avg_out_degree=3 por defecto para el run general
-    artifacts = [run_generate(settings, "all", 1000, 3), run_load(settings), run_analyze(settings)]
+    artifacts = [run_generate(settings, "all"), run_load(settings), run_analyze(settings)]
     summary = {
         "step": "all",
         "status": "ok",
@@ -162,7 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--csv", default="all", help=("CSV a generar cuando command=generate. "
                                                       "Valores: all, " + ", ".join(get_available_targets())))
     parser.add_argument("--rows", type=int, default=1000, help="Número de filas sintéticas para companies.csv cuando aplique")
-    parser.add_argument("--avg-out-degree", type=int, default=3, help="Grado medio de salida para generar rel_supplies.csv cuando aplique",)
+    parser.add_argument("--avg-degree-rel-supplies", type=int, default=3, help="Grado medio de salida para generar rel_supplies.csv cuando aplique",)
+    parser.add_argument("--avg-degree-documents", type=int, default=3, help="Grado medio de salida para generar documents.csv cuando aplique",)
     return parser
 
 
@@ -184,7 +193,7 @@ def main() -> None:
 
     # Ejecución de scrips espcificos segun el comando indicado
     if args.command == "generate":
-        artifact = run_generate(settings, args.csv, args.rows, args.avg_out_degree)
+        artifact = run_generate(settings, args.csv, args.rows, args.avg_degree_rel_supplies, args.avg_degree_documents)
         print(f"[OK] generate -> {artifact}")
     elif args.command == "load":
         artifact = run_load(settings)
