@@ -7,33 +7,18 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-# --- ESTRUCTURA DE DATOS BASE ---
 # @dataclass para almacenar de forma inmutable la información esencial de las empresas.
-# Solo cargamos los campos estrictamente necesarios para crear las relaciones.
 @dataclass(frozen=True)
 class CompanyRecord:
-    company_id: str             # ID único de la empresa
-    node_role: str              # Rol en la red (SUPPLIER, BUYER o HYBRID)
-    baseline_revenue: float     # Ingresos (usados para ponderar la probabilidad de tener más conexiones)
-    created_at: date            # Fecha de creación (para asegurar que la relación es posterior)
+    company_id: str             
+    node_role: str              
+    baseline_revenue: float     
+    created_at: date          
 
 # --- CONFIGURACIÓN DE NEGOCIO PARA CONTRATOS ---
 CONTRACT_TYPES = ["FRAME", "SPOT", "ANNUAL", "MULTIYEAR"]
 PAYMENT_TERMS = [15, 30, 45, 60, 90]
 PAYMENT_TERMS_WEIGHTS = [0.05, 0.45, 0.25, 0.20, 0.05]
-
-
-def _to_float(value: str | None, default: float = 0.0) -> float:
-    """
-    Función auxiliar para conversión de strings a float de forma segura.
-    Maneja nulos, strings vacíos y errores de casteo, devolviendo un valor por defecto.
-    """
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
 
 
 def load_companies(companies_csv: Path) -> list[CompanyRecord]:
@@ -69,7 +54,7 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
                 CompanyRecord(
                     company_id=company_id,
                     node_role=node_role,
-                    baseline_revenue=max(_to_float(row.get("baseline_revenue"), 1.0), 1.0),
+                    baseline_revenue=max(float(row.get("baseline_revenue")), 1.0),
                     created_at=company_created_at,
                 )
             )
@@ -124,7 +109,6 @@ def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_
     in_degree: dict[str, int] = {company.company_id: 0 for company in buyers}
     edges: set[tuple[str, str]] = set()
     
-    # --- OPTIMIZACIÓN DE PESOS PARA SELECCIÓN DE EMPRESAS ---
     # Calculo de pesos base para cada empresa, que se actualizan solo cuando esa empresa participa en una nueva relación.
     supplier_base_weights = {
         c.company_id: 1.0 + (c.baseline_revenue / 100_000_000.0) 
@@ -198,15 +182,15 @@ def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_
             reliability = round(rng.uniform(0.82, 0.995), 4)
             writer.writerow(
                 {
-                    "supplier_company_id": supplier_id,                                                         # ID del proveedor
-                    "buyer_company_id": buyer_id,                                                               # ID del comprador
-                    "since_date": _random_since_date(rng, earliest_possible_date),                              # Fecha de inicio de la relación
-                    "lead_time_days": rng.randint(2, 45),                                                       # Tiempo de entrega en días
-                    "reliability_score": reliability,                                                           # Puntuación de confiabilidad del proveedor
-                    "agreed_volume_baseline": round(rng.uniform(1_000, 250_000), 2),                            # Volumen acordado en la relación
-                    "is_exclusive_supplier": rng.choices([True, False], weights=[0.12, 0.88], k=1)[0],          # Flag ser un proveedor exclusivo
-                    "payment_terms_agreed": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],  # Pago a X días fecha factura (Neto X)
-                    "contract_type": rng.choice(CONTRACT_TYPES),                                                # Tipo de contrato
+                    "supplier_company_id": supplier_id,                                                         
+                    "buyer_company_id": buyer_id,                                                               
+                    "since_date": _random_since_date(rng, earliest_possible_date),                              
+                    "lead_time_days": rng.randint(2, 45),                                                       
+                    "reliability_score": reliability,                                                           
+                    "agreed_volume_baseline": round(rng.uniform(1_000, 250_000), 2),                            
+                    "is_exclusive_supplier": rng.choices([True, False], weights=[0.12, 0.88], k=1)[0],          
+                    "payment_terms_agreed": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],  
+                    "contract_type": rng.choice(CONTRACT_TYPES),                                                
                 }
             )
 

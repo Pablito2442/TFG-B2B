@@ -13,11 +13,6 @@ from src.backend.generation.documents_synthesizer import synthesize_documents_cs
 from src.backend.generation.supplies_synthesizer import synthesize_rel_supplies_csv
 
 
-def _now_iso() -> str:
-    """Devuelve el timestamp actual en formato ISO y zona horaria UTC."""
-    return datetime.now(UTC).isoformat()
-
-
 def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
     """
     Guarda un archivo JSON con el resumen de la ejecución de cada paso del pipeline, incluyendo parámetros de entrada, 
@@ -33,7 +28,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_
     """
     Fase 1: Generación de datos sintéticos.
     Orquesta la creación de los CSVs. Tiene una dependencia en cascada estricta:
-    1. companies.csv (Depende de worldcities.csv)
+    1. companies.csv (Depende de europecities.csv)
     2. rel_supplies.csv (Depende de companies.csv)
     3. documents.csv (Depende de companies.csv y rel_supplies.csv)
     """
@@ -51,7 +46,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_
     companies_rows = 0
     rel_supplies_rows = 0
     documents_rows = 0
-    cities_csv_path = settings.data_raw_dir / "worldcities.csv"
+    cities_csv_path = settings.data_raw_dir / "europecities.csv"
     companies_csv_path = settings.data_synthetic_dir / "companies.csv"
     rel_supplies_csv_path = settings.data_synthetic_dir / "rel_supplies.csv"
 
@@ -89,7 +84,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_
     payload = {
         "step": "generate",
         "status": "ok",
-        "timestamp_utc": _now_iso(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "seed": settings.seed,
         "rows": rows,
         "avg_degree_rel_supplies": avg_degree_rel_supplies,
@@ -112,7 +107,7 @@ def run_load(settings: Settings) -> Path:
     payload = {
         "step": "load",
         "status": "ok",
-        "timestamp_utc": _now_iso(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "batch_size": settings.batch_size,
         "neo4j_uri": settings.neo4j_uri,
         "neo4j_database": settings.neo4j_database,
@@ -129,7 +124,7 @@ def run_analyze(settings: Settings) -> Path:
     payload = {
         "step": "analyze",
         "status": "ok",
-        "timestamp_utc": _now_iso(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "message": "Fase analítica inicializada (placeholder).",
     }
     return _write_step_artifact(settings, "analyze", payload)
@@ -145,7 +140,7 @@ def run_all(settings: Settings) -> list[Path]:
     summary = {
         "step": "all",
         "status": "ok",
-        "timestamp_utc": _now_iso(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "executed_steps": ["generate", "load", "analyze"],
         "artifacts": [str(path) for path in artifacts],
     }
