@@ -7,10 +7,11 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 from src.backend.config import Settings, load_settings
-from src.backend.generation.companies_synthesizer import synthesize_companies_csv
+from src.backend.database.loader import Neo4jBulkLoader
+from src.backend.generation.companies_synthesizer import get_companies_parser, synthesize_companies_csv
 from src.backend.generation.csv_templates import create_csv_templates, get_available_targets
-from src.backend.generation.documents_synthesizer import synthesize_documents_csv
-from src.backend.generation.supplies_synthesizer import synthesize_rel_supplies_csv
+from src.backend.generation.documents_synthesizer import get_documents_parser, synthesize_documents_csv
+from src.backend.generation.supplies_synthesizer import get_supplies_parser, synthesize_rel_supplies_csv
 
 
 def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
@@ -99,16 +100,24 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_
     return _write_step_artifact(settings, "generate", payload)
 
 
-def run_load(settings: Settings) -> Path:
+def run_load(settings: Settings, batch_size_loader: int) -> Path:
     """
     Fase 2: Carga en Base de Datos (Grafo).
     (Actualmente un placeholder preparado para inyectar datos en Neo4j).
     """
+    Neo4jBulkLoader(
+        uri=settings.neo4j_uri,
+        user=settings.neo4j_user,
+        password=settings.neo4j_password,
+        database=settings.neo4j_database,
+        batch_size=batch_size_loader,
+    )
+        
     payload = {
         "step": "load",
         "status": "ok",
         "timestamp_utc": datetime.now(UTC).isoformat(),
-        "batch_size": settings.batch_size,
+        "batch_size": batch_size_loader,
         "neo4j_uri": settings.neo4j_uri,
         "neo4j_database": settings.neo4j_database,
         "message": "Fase de carga inicializada (placeholder).",
@@ -148,25 +157,84 @@ def run_all(settings: Settings) -> list[Path]:
     return artifacts
 
 
+class CleanHelpFormatter(argparse.HelpFormatter):
+    """Formateador personalizado para ensanchar columnas y ocultar los METAVAR en mayúsculas."""
+    def __init__(self, prog):
+        super().__init__(prog, max_help_position=45, width=100)
+        
+    def _format_action_invocation(self, action):
+        # Si es un argumento posicional, lo dejamos igual
+        if not action.option_strings:
+            return super()._format_action_invocation(action)
+        # Si es una opción (--rows, --seed), devolvemos solo la bandera y ocultamos la variable en mayúsculas
+        return ', '.join(action.option_strings)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """
-    Define la interfaz de línea de comandos (CLI). Se solicitan comandos de alto nivel (generate, load, analyze, all) 
-    y parámetros de control como seed, batch_size, csv_target, rows y avg_out_degree, pero no directorios específicos.
-    """
-    
-    parser = argparse.ArgumentParser(description="Pipeline TFG-B2B")
-    
-    # Argumento obligatorio para ejecución
-    parser.add_argument("command", choices=["generate", "load", "analyze", "all"], help="Comando de pipeline a ejecutar",)
-    
-    # Argumentos opcionales para control de generación y carga
-    parser.add_argument("--seed", type=int, default=None, help="Semilla para generación sintética")
-    parser.add_argument("--batch-size", type=int, default=None, help="Tamaño de lote para cargas")
-    parser.add_argument("--csv", default="all", help=("CSV a generar cuando command=generate. "
-                                                      "Valores: all, " + ", ".join(get_available_targets())))
-    parser.add_argument("--rows", type=int, default=1000, help="Número de filas sintéticas para companies.csv cuando aplique")
-    parser.add_argument("--avg-degree-rel-supplies", type=int, default=3, help="Grado medio de salida para generar rel_supplies.csv cuando aplique",)
-    parser.add_argument("--avg-degree-documents", type=int, default=3, help="Grado medio de salida para generar documents.csv cuando aplique",)
+    """CLI con subparsers, heredando configuraciones de los submódulos."""
+    # Formateador para ensanchar las columnas y evitar saltos de línea feos
+    # custom_formatter = lambda prog: argparse.HelpFormatter(prog, max_help_position=45, width=100)
+
+    parser = argparse.ArgumentParser(description="Pipeline TFG-B2B", formatter_class=CleanHelpFormatter)
+    subparsers = parser.add_subparsers(
+        dest="command", 
+        required=True, 
+        title="Comandos disponibles",
+        help="Ejecuta uno de los comandos para ver su ayuda específica (ej. all -h)",
+        metavar="{generate, load, analyze, all}"
+    )
+
+    # --- SUBCOMANDO PARA GENERATE ---
+    parser_generate = subparsers.add_parser(
+        "generate",
+        help="Generación de datos sintéticos",
+        formatter_class=CleanHelpFormatter,
+        parents=[
+            get_companies_parser(),
+            get_supplies_parser(),
+            get_documents_parser(),
+        ]
+    )
+    parser_generate._optionals.title = "Opciones generales disponibles"
+    parser_generate.add_argument(
+        "--csv", 
+        default="all", 
+        help="Generación de CSV específico (Valores: all, companies, documents, products, rel_contains, rel_fulfills, rel_issues, rel_sent_to, rel_supplies)", 
+        metavar="TARGET"
+    )
+    parser_generate.add_argument("--seed", type=int, default=None, help="Semilla global para generación", metavar="SEED")
+
+    # --- SUBCOMANDO PARA LOAD ---
+    parser_load = subparsers.add_parser(
+        "load", 
+        help="Carga de datos en BD",
+        formatter_class=CleanHelpFormatter
+    )
+    parser_load._optionals.title = "Opciones generales disponibles"
+    parser_load.add_argument("--batch_size_loader", type=int, default=10, help="Filas por lote para Neo4j", metavar="N")
+
+    # --- SUBCOMANDO PARA ANALYZE ---
+    parser_analyze = subparsers.add_parser(
+        "analyze", 
+        help="Análisis de topología",
+        formatter_class=CleanHelpFormatter
+    )
+
+    # --- SUBCOMANDO PARA ALL ---
+    parser_all = subparsers.add_parser(
+        "all", 
+        help="Ejecución del pipeline completo End-to-End",
+        formatter_class=CleanHelpFormatter,
+        parents=[
+            get_companies_parser(),
+            get_supplies_parser(),
+            get_documents_parser(),
+        ]
+    )
+    parser_all._optionals.title = "Opciones generales disponibles"
+    parser_all.add_argument("--seed", type=int, default=None, help="Semilla global", metavar="SEED")
+    parser_all.add_argument("--batch_size_loader", type=int, default=10, help="Filas por lote para Neo4j", metavar="N")
+
     return parser
 
 
@@ -180,29 +248,35 @@ def main() -> None:
     settings = load_settings()
     if args.seed is not None:
         settings = replace(settings, seed=args.seed)
-    if args.batch_size is not None:
-        settings = replace(settings, batch_size=args.batch_size)
 
     # Aseguramos que los directorios de datos existen
     settings.ensure_data_directories()
-
-    # Ejecución de scrips espcificos segun el comando indicado
+    
     if args.command == "generate":
-        artifact = run_generate(settings, args.csv, args.rows, args.avg_degree_rel_supplies, args.avg_degree_documents)
+        # Usamos getattr() como medida de seguridad por si ejecutas un comando 
+        # que no tenga instanciado alguno de estos parámetros en su namespace.
+        artifact = run_generate(
+            settings, 
+            csv_target=args.csv, 
+            rows=getattr(args, 'rows', 1000), 
+            avg_degree_rel_supplies=getattr(args, 'avg_degree_supplies'), 
+            avg_degree_documents=getattr(args, 'avg_degree_documents')
+        )
         print(f"[OK] generate -> {artifact}")
+        
     elif args.command == "load":
-        artifact = run_load(settings)
+        artifact = run_load(settings, getattr(args, 'batch_size_loader'))
         print(f"[OK] load -> {artifact}")
+        
     elif args.command == "analyze":
         artifact = run_analyze(settings)
         print(f"[OK] analyze -> {artifact}")
+        
     else:
         artifacts = run_all(settings)
         print("[OK] all")
         for artifact in artifacts:
             print(f"  - {artifact}")
 
-
 if __name__ == "__main__":
     main()
-

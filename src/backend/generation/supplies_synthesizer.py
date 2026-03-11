@@ -197,13 +197,28 @@ def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_
     return output_file
 
 
+def get_supplies_parser() -> argparse.ArgumentParser:
+    """Contiene solo los argumentos exclusivos de este módulo."""
+    parser = argparse.ArgumentParser(add_help=False)
+    # Creamos un grupo visual
+    group = parser.add_argument_group("Opciones de rel_supplies.csv")
+    group.add_argument("--avg-degree-supplies", type=int, default=3, help="Grado medio de salida por proveedor",)
+    return parser
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Configuracion de la línea de comandos para poder pasarle parámetros al ejecutar el script."""
-    parser = argparse.ArgumentParser(description="Generador sintético para rel_supplies.csv")
-    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv",)
-    parser.add_argument("--output", type=str, default="data/synthetic/rel_supplies.csv", help="Ruta de salida de rel_supplies.csv",)
-    parser.add_argument("--avg-out-degree", type=int, default=3, help="Grado medio de salida por proveedor",)
+    """
+    Se usa solo cuando ejecutas este script de forma independiente.
+    Junta los argumentos exclusivos heredados con los globales.
+    """
+    parser = argparse.ArgumentParser(
+        description="Generador sintético para rel_supplies.csv",
+        parents=[get_supplies_parser()] # Hereda --avg-out-degree
+    )
+    # Estos se quedan aquí para no colisionar con el pipeline principal
     parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
+    parser.add_argument("--output", type=str, default="data/synthetic/rel_supplies.csv", help="Ruta de salida de rel_supplies.csv",)
+    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv",)
     return parser
 
 

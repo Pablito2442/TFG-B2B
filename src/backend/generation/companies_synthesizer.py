@@ -157,13 +157,30 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
 
     return output_file
 
-def build_parser() -> argparse.ArgumentParser:
-    """Configuracion de la línea de comandos para poder pasarle parámetros al ejecutar el script."""
-    parser = argparse.ArgumentParser(description="Generador sintético para companies.csv")
-    parser.add_argument("--rows", type=int, default=1000, help="Número de empresas a sintetizar")
-    parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
-    parser.add_argument("--output", type=str, default="data/synthetic/companies.csv", help="Ruta de salida del CSV de companies")
+def get_companies_parser() -> argparse.ArgumentParser:
+    """Contiene solo los argumentos exclusivos de este módulo."""
+    parser = argparse.ArgumentParser(add_help=False)
+    # Creamos un grupo visual
+    group = parser.add_argument_group("Opciones de companies.csv")
+    group.add_argument("--rows", type=int, default=1000, help="Número de empresas a sintetizar")
     return parser
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """
+    Se usa solo cuando ejecutas este script de forma independiente.
+    Junta los argumentos exclusivos heredados con los globales (seed, output).
+    """
+    parser = argparse.ArgumentParser(
+        description="Generador sintético para companies.csv",
+        parents=[get_companies_parser()] # Hereda --rows
+    )
+    # Estos se quedan aquí para no colisionar con el pipeline principal
+    parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
+    parser.add_argument("--output", type=str, default="data/synthetic/companies.csv", help="Ruta de salida")
+    parser.add_argument("--cities", type=str, default="data/raw/europecities.csv", help="Ruta del CSV de ciudades Europeas")
+    return parser
+
 
 def main() -> None:
     """Punto de entrada del programa."""

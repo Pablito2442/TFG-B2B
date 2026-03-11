@@ -46,26 +46,6 @@ class CompanyPair:
     since_date: datetime
 
 
-def _safe_int(value: str | None, default: int) -> int:
-    """Conversión a entero de forma segura. Si falla o está vacío, devuelve un valor por defecto."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return int(float(value))
-    except ValueError:
-        return default
-
-
-def _safe_float(value: str | None, default: float) -> float:
-    """Conversión a float de forma segura. Si falla o está vacío, devuelve un valor por defecto."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
-
-
 def _safe_date_to_datetime(value: str | None, default: datetime) -> datetime:
     """Conversión a datetime de forma segura. Si falla o está vacío, devuelve un valor por defecto."""
     if value is None or value.strip() == "":
@@ -95,7 +75,7 @@ def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
                 company_id=company_id,
                 country=(row.get("country") or "ES").strip().upper(),
                 industry_code=(row.get("industry_code") or "G46").strip().upper(),
-                baseline_revenue=max(_safe_float(row.get("baseline_revenue"), 100_000.0), 1_000.0),
+                baseline_revenue=max(float(row.get("baseline_revenue")), 1_000.0),
             )
 
     if not profiles:
@@ -122,7 +102,7 @@ def _load_pairs_from_supplies(rel_supplies_csv: Path) -> list[CompanyPair]:
                 CompanyPair(
                     supplier_company_id=supplier,
                     buyer_company_id=buyer,
-                    payment_terms_days=_safe_int(row.get("payment_terms_agreed"), 30),
+                    payment_terms_days=int(float(row.get("payment_terms_agreed"))),
                     since_date=_safe_date_to_datetime(row.get("since_date"), fallback_since),
                 )
             )
@@ -308,14 +288,29 @@ def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplie
     return output_file
 
 
+def get_documents_parser() -> argparse.ArgumentParser:
+    """Contiene solo los argumentos exclusivos de este módulo."""
+    parser = argparse.ArgumentParser(add_help=False)
+    # Creamos un grupo visual
+    group = parser.add_argument_group("Opciones de documents.csv")
+    group.add_argument("--avg-degree-documents", type=int, default=5, help="Numero de tripletes (Pedido-Albarán-Factura) a generar por cada relación supplier-buyer")
+    return parser
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Configuracion de la línea de comandos para poder pasarle parámetros al ejecutar el script."""
-    parser = argparse.ArgumentParser(description="Generador sintético para documents.csv")
+    """
+    Se usa solo cuando ejecutas este script de forma independiente.
+    Junta los argumentos exclusivos heredados con los globales.
+    """
+    parser = argparse.ArgumentParser(
+        description="Generador sintético para documents.csv",
+        parents=[get_documents_parser()] # Hereda --avg-out-degree
+    )
+    # Estos se quedan aquí para no colisionar con el pipeline principal
     parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
-    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv")
+    parser.add_argument("--output", type=str, default="data/synthetic/documents.csv", help="Ruta de salida de documents.csv",)
+    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv",)
     parser.add_argument("--supplies", type=str, default="data/synthetic/rel_supplies.csv", help="Ruta del CSV rel_supplies.csv")
-    parser.add_argument("--avg-out-degree", type=int, default=3, help="Numero de tripletes por cada par supplier-buyer")
-    parser.add_argument("--output", type=str, default="data/synthetic/documents.csv", help="Ruta de salida de documents.csv")
     return parser
 
 
