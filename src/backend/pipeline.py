@@ -7,6 +7,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 from src.backend.config import Settings, load_settings
+from src.backend.database import loader
 from src.backend.database.loader import Neo4jBulkLoader
 from src.backend.generation.companies_synthesizer import get_companies_parser, synthesize_companies_csv
 from src.backend.generation.csv_templates import create_csv_templates, get_available_targets
@@ -25,7 +26,10 @@ def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
     return target
 
 
-def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_supplies: int, avg_degree_documents: int) -> Path:
+def run_generate(settings: Settings, csv_target: str, rows: int, 
+                 avg_degree_rel_supplies: int, avg_degree_documents: int,
+                 gamma: float, beta: float, mu: float, 
+                 min_comm: int, max_comm: int) -> Path:
     """
     Fase 1: Generación de datos sintéticos.
     Orquesta la creación de los CSVs. Tiene una dependencia en cascada estricta:
@@ -59,6 +63,11 @@ def run_generate(settings: Settings, csv_target: str, rows: int, avg_degree_rel_
                 cities_csv=cities_csv_path,
                 rows=rows,
                 seed=settings.seed,
+                gamma=gamma,
+                beta=beta,
+                mu=mu,
+                min_comm=min_comm,
+                max_comm=max_comm
             )
             companies_rows = rows
         if csv_path.name == "rel_supplies.csv":
@@ -105,13 +114,16 @@ def run_load(settings: Settings, batch_size_loader: int) -> Path:
     Fase 2: Carga en Base de Datos (Grafo).
     (Actualmente un placeholder preparado para inyectar datos en Neo4j).
     """
-    Neo4jBulkLoader(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-        database=settings.neo4j_database,
+    with Neo4jBulkLoader(
+        neo4j_uri=settings.neo4j_uri,
+        neo4j_user=settings.neo4j_user,
+        neo4j_password=settings.neo4j_password,
+        neo4j_database=settings.neo4j_database,
         batch_size=batch_size_loader,
-    )
+    ) as loader:
+        loader.verify_connection()
+        loader.create_constraints_and_indexes()
+        load_stats = loader.load_from_directory(settings.data_synthetic_dir)
         
     payload = {
         "step": "load",
@@ -246,7 +258,9 @@ def main() -> None:
 
     # Carga de configuración global y sobreescritura con argumentos de línea de comandos si no se proporcionan
     settings = load_settings()
-    if args.seed is not None:
+    
+    seed_arg = getattr(args, 'seed', None)
+    if seed_arg is not None:
         settings = replace(settings, seed=args.seed)
 
     # Aseguramos que los directorios de datos existen
@@ -258,9 +272,14 @@ def main() -> None:
         artifact = run_generate(
             settings, 
             csv_target=args.csv, 
-            rows=getattr(args, 'rows', 1000), 
+            rows=getattr(args, 'rows'), 
             avg_degree_rel_supplies=getattr(args, 'avg_degree_supplies'), 
-            avg_degree_documents=getattr(args, 'avg_degree_documents')
+            avg_degree_documents=getattr(args, 'avg_degree_documents'),
+            gamma=getattr(args, 'gamma'),
+            beta=getattr(args, 'beta'),
+            mu=getattr(args, 'mu'),
+            min_comm=getattr(args, 'min_community'),
+            max_comm=getattr(args, 'max_community'),
         )
         print(f"[OK] generate -> {artifact}")
         
