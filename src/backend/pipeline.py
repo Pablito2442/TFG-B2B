@@ -33,7 +33,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
     """
     Fase 1: Generación de datos sintéticos.
     Orquesta la creación de los CSVs. Tiene una dependencia en cascada estricta:
-    1. companies.csv (Depende de europecities.csv)
+    1. companies.csv (Depende de municipios_españa.csv)
     2. rel_supplies.csv (Depende de companies.csv)
     3. documents.csv (Depende de companies.csv y rel_supplies.csv)
     """
@@ -51,7 +51,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
     companies_rows = 0
     rel_supplies_rows = 0
     documents_rows = 0
-    cities_csv_path = settings.data_raw_dir / "europecities.csv"
+    cities_csv_path = settings.data_raw_dir / "municipios_espana.csv"
     companies_csv_path = settings.data_synthetic_dir / "companies.csv"
     rel_supplies_csv_path = settings.data_synthetic_dir / "rel_supplies.csv"
 
@@ -75,6 +75,7 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
                 output_file=csv_path,
                 companies_csv=companies_csv_path,
                 avg_out_degree=avg_degree_rel_supplies,
+                mu=mu,
                 seed=settings.seed,
             )
             with result_path.open("r", encoding="utf-8", newline="") as csv_file:

@@ -51,6 +51,6 @@ def load_settings() -> Settings:
 		neo4j_user=os.getenv("NEO4J_USER", "neo4j"),
 		neo4j_password=os.getenv("NEO4J_PASSWORD", "AdminUser1234"),
 		neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j"),
-		seed=_as_int(os.getenv("TFG_SEED"), 42),
+		seed=_as_int(os.getenv("TFG_SEED"), None),
 	)
 

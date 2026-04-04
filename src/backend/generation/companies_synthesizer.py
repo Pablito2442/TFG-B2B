@@ -16,29 +16,16 @@ SIZE_BANDS = ["micro", "pyme", "mid", "enterprise"]
 
 NODE_ROLES = ["SUPPLIER", "BUYER", "HYBRID"]
 
-ISO_TO_LOCALE = {
-    'AT': 'de_AT', 'BE': 'nl_BE', 'BG': 'bg_BG', 'HR': 'hr_HR', 
-    'CY': 'el_GR', 'CZ': 'cs_CZ', 'DK': 'da_DK', 'EE': 'et_EE', 
-    'FI': 'fi_FI', 'FR': 'fr_FR', 'DE': 'de_DE', 'GR': 'el_GR', 
-    'HU': 'hu_HU', 'IE': 'en_IE', 'IT': 'it_IT', 'LV': 'lv_LV', 
-    'LT': 'lt_LT', 'LU': 'fr_FR', 'MT': 'en_GB', 'NL': 'nl_NL', 
-    'PL': 'pl_PL', 'PT': 'pt_PT', 'RO': 'ro_RO', 'SK': 'sk_SK', 
-    'SI': 'sl_SI', 'ES': 'es_ES', 'SE': 'sv_SE', 'GB': 'en_GB', 
-    'CH': 'de_CH', 'NO': 'no_NO', 'IS': 'is_IS', 'LI': 'de_DE',
-    'BA': 'bs_BA', 'AL': 'sq_AL', 'MC': 'fr_FR'
-}
+GEO_JITTER_DEG = 0.015
 
-# Inializacion del generador de datos sintéticos Faker con los locales del diccionario
-UNIQUE_LOCALES = list(set(ISO_TO_LOCALE.values()))
-fake = Faker(UNIQUE_LOCALES)
+fake = Faker("es_ES")
 
 
 @dataclass(frozen=True) # Hace que la clase sea inmutable.
-class CityPoint:
-    """Punto geográfico de una ciudad europea, con su población para ponderar la topología."""
-    country: str    # Código de país
-    region: str     
-    city: str       
+class MunicipalityPoint:
+    """Punto geográfico de un municipio español, con su población para ponderar la topología."""
+    province: str
+    municipality: str
     lat: float      
     lon: float      
     population: int
@@ -48,48 +35,71 @@ class CityPoint:
 class LFRProfile:
     """Perfil latente LFR para condicionar atributos de cada empresa."""
     community_id: int
-    anchor_country: str     # País de anclaje para sesgar la ubicación geográfica de la empresa dentro de su comunidad.
+    anchor_province: str      # Provincia de anclaje para sesgar la ubicación geográfica de la empresa dentro de su comunidad.
     preferred_industries: tuple[str, ...]
     degree_propensity: float
     mixing_mu: float
 
 
-def load_cities(csv_path: Path) -> tuple[list[CityPoint], list[int]]:
-    """
-    Carga el dataset geográfico y filtrado estrictamente de las ciudades europeas,
-    extrayendo sus pesos poblacionales para mantener una topología Scale-Free espacial.
+def _safe_float(val: str | None, default: float = 0.0) -> float:
+    if not val:
+        return default
+    try:
+        return float(str(val).strip().replace(",", "."))
+    except ValueError:
+        return default
+
+def _safe_int(val: str | None, default: int = 50_000) -> int:
+    if not val:
+        return default
+    try:
+        cleaned_val = str(val).strip().replace(".", "").replace(",", ".")
+        return int(float(cleaned_val))
+    except ValueError:
+        return default
+
+
+def load_municipalities(csv_path: Path) -> tuple[list[MunicipalityPoint], list[int]]:
+    """Carga el dataset geográfico de municipios extrayendo sus pesos poblacionales."""
+    municipalities = []
+    municipality_weights = []
     
-    Retorna dos listas (del mismo tamaño):
-        1. cities: Objetos CityPoint con la info de la ciudad.
-        2. city_weights: La población de cada ciudad, que se usará luego como estadistica.
-    """
-    cities = []
-    city_weights = []
-    
-    # Apertura del CSV con manejo de encoding y delimitadores estándar
-    with csv_path.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f, delimiter=";")
         for row in reader:
-            population = int(float(row.get("population", 50000) or 50000))
+            province = (row.get("Provincia") or "").strip()
+            municipality = (row.get("Población") or "").strip()
             
-            # Creación de un objeto CityPoint para almacenar la información
-            city = CityPoint(
-                country=row["iso2"].upper(),
-                region=row["admin_name"],
-                city=row["city"],
-                lat=float(row["lat"]),
-                lon=float(row["lng"]),
-                population=population
+            if not municipality or not province:
+                continue
+            
+            pop = _safe_int(row.get("Habitantes"), 50_000)
+            
+            mun = MunicipalityPoint(
+                province=province,
+                municipality=municipality,
+                lat=_safe_float(row.get("Latitud"), 0.0),
+                lon=_safe_float(row.get("Longitud"), 0.0),
+                population=pop
             )
             
-            cities.append(city)
-            city_weights.append(population)
+            municipalities.append(mun)
+            municipality_weights.append(pop)
                 
-    # Validación para asegurar que se ha cargado .csv con ciudades europeas                
-    if not cities:
-        raise ValueError("No se encontraron ciudades europeas en el dataset proporcionado.")
+    if not municipalities:
+        raise ValueError("No se encontraron municipios válidos en el dataset proporcionado.")
         
-    return cities, city_weights
+    return municipalities, municipality_weights
+    
+
+def _get_most_populated_province(municipalities: list[MunicipalityPoint]) -> str:
+    """Calcula la provincia con mayor población AGREGADA."""
+    pop_by_province = {}
+    for mun in municipalities:
+        pop_by_province[mun.province] = pop_by_province.get(mun.province, 0) + mun.population
+    
+    # Devuelve el nombre de la provincia con la suma total más alta
+    return max(pop_by_province.items(), key=lambda x: x[1])[0]
 
 
 def _sample_community_sizes(beta: float, min_comm: int, max_comm: int,rows: int, rng: random.Random) -> list[int]:
@@ -138,10 +148,10 @@ def _size_band_from_lfr(degree_propensity: float, rng: random.Random) -> str:
 def _baseline_revenue(size_band: str, rng: random.Random) -> float:
     """Asigna ingresos anuales (baseline_revenue) coherentes con el tamaño de la empresa."""
     ranges = {
-            "micro": (50_000, 450_000),
-            "pyme": (450_000, 8_000_000),
-            "mid": (8_000_000, 80_000_000),
-            "enterprise": (80_000_000, 600_000_000),
+            "micro": (30_000, 600_000),
+            "pyme": (600_000, 4_000_000),
+            "mid": (4_000_000, 30_000_000),
+            "enterprise": (30_000_000, 200_000_000),
     }
     low, high = ranges[size_band]
     return round(rng.uniform(low, high), 2)
@@ -165,21 +175,30 @@ def _node_role_from_lfr(degree_propensity: float, mixing_mu: float, rng: random.
     return rng.choices(NODE_ROLES, weights=weights, k=1)[0]
 
 
-def _build_lfr_profiles(rows: int, cities: list[CityPoint], population_weights: list[int], rng: random.Random, 
+def _build_lfr_profiles(rows: int, municipalities: list[MunicipalityPoint], municipality_weights: list[int], rng: random.Random, 
                         gamma: float, beta: float, mu: float, min_comm: int, max_comm: int) -> list[LFRProfile]:
     """Construye perfiles LFR latentes para todas las empresas a sintetizar."""
     community_sizes = _sample_community_sizes(beta, min_comm, max_comm, rows, rng)
+    community_sizes.sort(reverse=True)
+    most_populated_province = _get_most_populated_province(municipalities)
+    
     profiles: list[LFRProfile] = []
     community_id = 1
-    for size in community_sizes:
-        anchor_country = rng.choices(cities, weights=population_weights, k=1)[0].country
+    
+    for idx, size in enumerate(community_sizes):
+        if idx == 0:
+            anchor_province = most_populated_province
+        else:
+            anchor_province = rng.choices(municipalities, weights=municipality_weights, k=1)[0].province
+            
         preferred_size = min(3, len(INDUSTRY_CODES))
         preferred_industries = tuple(rng.sample(INDUSTRY_CODES, k=preferred_size))
+        
         for _ in range(size):
             profiles.append(
                 LFRProfile(
                     community_id=community_id,
-                    anchor_country=anchor_country,
+                    anchor_province=anchor_province,
                     preferred_industries=preferred_industries,
                     degree_propensity=_sample_degree_propensity(gamma, rng),
                     mixing_mu=_sample_mixing_mu(mu, rng),
@@ -194,32 +213,41 @@ def _build_lfr_profiles(rows: int, cities: list[CityPoint], population_weights: 
 def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, seed: int, 
                              gamma: float, beta: float, mu: float, min_comm: int, max_comm: int) -> Path:
     """Función principal que genera el archivo CSV final de empresas (companies.csv)."""
-    # Validación de parámetros de entrada para asegurar que se solicite una cantidad de filas razonable
-    if rows <= 0:
-        raise ValueError("El número de filas debe ser > 0")
+    if rows <= 0: raise ValueError("El número de filas debe ser > 0")
+    if gamma <= 1.0: raise ValueError("gamma (distribución de grados) debe ser > 1.0")
+    if beta <= 1.0: raise ValueError("beta (distribución de comunidades) debe ser > 1.0")
+    if not (0 <= mu <= 1): raise ValueError("mu (mixing parameter) debe estar entre 0.0 y 1.0")
+    if min_comm <= 0: raise ValueError("min_community debe ser mayor que 0")
+    if min_comm > max_comm: raise ValueError("min_community no puede ser mayor que max_community")
 
     # Inicializacion de motores aleatorios (estándar y el de Faker) con la semilla
     rng = random.Random(seed)
     Faker.seed(seed)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Carga de datos geográficos de ciudades y generación de perfiles LFR
-    cities, population_weights = load_cities(cities_csv)
+    # Carga de datos geográficos de municipios y generación de perfiles LFR
+    municipalities, municipality_weights = load_municipalities(cities_csv)
     profiles = _build_lfr_profiles(
-        rows=rows, cities=cities, population_weights=population_weights, rng=rng,
+        rows=rows, municipalities=municipalities, municipality_weights=municipality_weights, rng=rng,
         gamma=gamma, beta=beta, mu=mu, min_comm=min_comm, max_comm=max_comm
     )
 
-    cities_by_country: dict[str, list[CityPoint]] = {}
-    for city in cities:
-        cities_by_country.setdefault(city.country, []).append(city)
+    cities_by_province: dict[str, list[MunicipalityPoint]] = {}
+    weights_by_province: dict[str, list[int]] = {} 
 
-    # Definimos las columnas que tendrá nuestro CSV de salida
+    for municipality in municipalities:
+        cities_by_province.setdefault(municipality.province, []).append(municipality)
+        
+    for prov, cities_list in cities_by_province.items():
+        weights_by_province[prov] = [max(point.population, 1) for point in cities_list]
+        
     fieldnames = [
         "company_id", "legal_name", "tax_id", "edi_endpoint", "node_role",
         "country", "region", "city", "latitude", "longitude",
         "industry_code", "size_band", "baseline_revenue", "created_at", "is_active",
     ]
+    
+    used_tax_ids = set()
     
     # Creación y escritura del CSV, generando cada fila con datos sintéticos realistas
     with output_file.open("w", encoding="utf-8", newline="") as csv_file:
@@ -229,33 +257,44 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
         for index in range(1, rows + 1):
             # Aplicamos un perfil latente LFR para sesgar atributos de empresa.
             profile = profiles[index - 1]
-            if rng.random() > profile.mixing_mu and profile.anchor_country in cities_by_country:
-                country_cities = cities_by_country[profile.anchor_country]
-                country_weights = [max(point.population, 1) for point in country_cities]
-                city_point = rng.choices(country_cities, weights=country_weights, k=1)[0]
+            if rng.random() > profile.mixing_mu and profile.anchor_province in cities_by_province:
+                province_cities = cities_by_province[profile.anchor_province]
+                province_weights = weights_by_province[profile.anchor_province]
+                city_point = rng.choices(province_cities, weights=province_weights, k=1)[0]
             else:
-                city_point = rng.choices(cities, weights=population_weights, k=1)[0]
+                city_point = rng.choices(municipalities, weights=municipality_weights, k=1)[0]
 
             size_band = _size_band_from_lfr(profile.degree_propensity, rng)
+            company_id = f"COMP-{index:07d}"
             
-            # Buscamos el locale correspondiente al país, usando 'en_US' como fallback de seguridad
-            locale = ISO_TO_LOCALE.get(city_point.country, 'en_US')
+            attempts = 0
+            max_attempts = 50
+            while attempts < max_attempts:
+                cif_candidate = f"ES{fake.cif()}"
+                if cif_candidate not in used_tax_ids:
+                    used_tax_ids.add(cif_candidate)
+                    break
+                attempts += 1
             
+            if attempts == max_attempts:
+                cif_candidate = f"ESX{index:07d}"
+                used_tax_ids.add(cif_candidate)
+
             record = {
-                "company_id": f"COMP-{index:07d}",
-                "legal_name": fake[locale].company(),
-                "tax_id": f"{city_point.country}{rng.randint(10000000, 99999999)}",
-                "edi_endpoint": f"as2://edi.comp-{index:07d}.b2b.local/inbox",
+                "company_id": company_id,
+                "legal_name": fake.company(),
+                "tax_id": cif_candidate,
+                "edi_endpoint": f"as2://edi.{company_id.lower()}.b2b.local/inbox",
                 "node_role": _node_role_from_lfr(profile.degree_propensity, profile.mixing_mu, rng),
-                "country": city_point.country,
-                "region": city_point.region,
-                "city": city_point.city,
-                "latitude": round(city_point.lat + rng.uniform(-0.01, 0.01), 6),
-                "longitude": round(city_point.lon + rng.uniform(-0.01, 0.01), 6),
+                "country": "ES",
+                "region": city_point.province,
+                "city": city_point.municipality,
+                "latitude": round(city_point.lat + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
+                "longitude": round(city_point.lon + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
                 "industry_code": _industry_from_lfr(profile.preferred_industries, rng),
                 "size_band": size_band,
                 "baseline_revenue": _baseline_revenue(size_band, rng),
-                "created_at": fake[locale].date_time_between(start_date='-8y', end_date='now', tzinfo=timezone.utc).isoformat(),
+                "created_at": fake.date_time_between(start_date='-8y', end_date='now', tzinfo=timezone.utc).isoformat(),
                 "is_active": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
             }
             writer.writerow(record)
