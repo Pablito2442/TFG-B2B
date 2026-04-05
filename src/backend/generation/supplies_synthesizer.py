@@ -9,7 +9,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import logging         
 
-# --- CONFIGURACIÓN DE NEGOCIO PARA ESTABLECER RELACIONES ---
+# =============================================================================
+# CABECERA (Configuración y Modelos)
+# =============================================================================
 CONTRACT_TYPES = ["FRAME", "SPOT", "ANNUAL", "MULTIYEAR"]
 PAYMENT_TERMS = [15, 30, 45, 60, 90]
 PAYMENT_TERMS_WEIGHTS = [0.05, 0.45, 0.25, 0.20, 0.05]
@@ -28,6 +30,9 @@ class CompanyRecord:
     created_at: date
 
 
+# =============================================================================
+# INTERFAZ PÚBLICA (CLI)
+# =============================================================================
 def get_supplies_parser() -> argparse.ArgumentParser:
     """Contiene solo los argumentos exclusivos de este módulo."""
     parser = argparse.ArgumentParser(add_help=False)
@@ -37,6 +42,9 @@ def get_supplies_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# =============================================================================
+# FUNCIÓN PRINCIPAL (MAIN)
+# =============================================================================
 def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_degree: int, mu: float, seed: int) -> Path:
     """Orquesta la generación de relaciones comerciales respetando la topología LFR y las escribe en un CSV."""
     if avg_out_degree <= 0: raise ValueError("avg_out_degree debe ser > 0")
@@ -54,6 +62,9 @@ def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_
     return output_file
 
 
+# =============================================================================
+# LÓGICA DE ALTO NIVEL (FUNCIONES AUXILIARES PARA LA FUNCIÓN PRINCIPAL)
+# =============================================================================
 def load_companies(companies_csv: Path) -> list[CompanyRecord]:
     """Carga del listado de empresas generadas previamente en companies.csv."""
     if not companies_csv.exists():
@@ -305,15 +316,9 @@ def _write_supplies_to_csv(output_file: Path, edges: set[tuple[str, str]], compa
             })
 
 
-def _safe_float(val: str | None, default: float = 1.0) -> float:
-    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
-    if not val:
-        return default
-    try:
-        return float(str(val).strip().replace(",", "."))
-    except ValueError:
-        return default
-
+# =============================================================================
+# FUNCIONES AUXILIARES (Helpers / Utils)
+# =============================================================================
 
 def _parse_created_at(raw_date: str | None) -> date:
     """Parsea la fecha de creación de la empresa desde el CSV."""
@@ -335,3 +340,13 @@ def _random_since_date(rng: random.Random, start_date: date) -> str:
         
     offset = rng.randint(0, (SIMULATION_TODAY - start_date).days)
     return (SIMULATION_TODAY - timedelta(days=offset)).isoformat()
+
+
+def _safe_float(val: str | None, default: float = 1.0) -> float:
+    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
+    if not val:
+        return default
+    try:
+        return float(str(val).strip().replace(",", "."))
+    except ValueError:
+        return default
