@@ -2,65 +2,112 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, UTC
 from pathlib import Path
 
-# Constantes globales con las opciones para generar datos aleatorios
-EDI_STANDARDS = ["EDIFACT", "ANSI_X12", "UBL_2_1", "PEPPOL_BIS"]
-VERSION_RANGE = (1, 4)
+# =============================================================================
+# CABECERA (Configuración y Modelos)
+# =============================================================================
+
+SIMULATION_TODAY = date(2026, 1, 1)     # Reemplaza con date.today() en producción
+EDI_STANDARDS = ["EDIFACT", "ANSI_X12"]
+
+MONTH_WEIGHTS: dict[int, float] = {
+    1: 0.85, 2: 0.85, 3: 0.95, 4: 1.00, 5: 1.05, 6: 1.20,
+    7: 1.25, 8: 1.10, 9: 1.00, 10: 1.05, 11: 1.20, 12: 1.40,
+}
+MAX_MONTH_WEIGHT = max(MONTH_WEIGHTS.values())
 
 INDUSTRY_TAX_RATES: dict[str, list[float]] = {
-    "C10": [0.04, 0.10],
-    "C20": [0.21],
-    "C25": [0.21],
-    "C28": [0.21],
-    "G46": [0.21],
-    "H52": [0.10, 0.21],
-    "J62": [0.21],
-    "M70": [0.21],
+    "C10": [0.04, 0.10], "C13": [0.21], "C20": [0.21], "C22": [0.21],
+    "C25": [0.21], "C26": [0.21], "C28": [0.21], "C29": [0.21],
+    "G46": [0.10, 0.21], "H52": [0.21], "J62": [0.21], "M71": [0.21],
 }
-
-COUNTRY_CURRENCY: dict[str, str] = {
-    "GB": "GBP",
-    "US": "USD",
-}
-
 
 @dataclass(frozen=True)
 class CompanyProfile:
-    """Estructura inmutable que representa los datos financieros y demográficos de las empresa."""
     company_id: str
     country: str
     industry_code: str
     baseline_revenue: float
 
-
 @dataclass(frozen=True)
 class CompanyPair:
-    """Estructura de datos inmutable para almacenar la relación entre un proveedor y un comprador."""
     supplier_company_id: str
     buyer_company_id: str
+    lead_time_days: int
+    reliability_score: float
+    agreed_volume_baseline: float
+    contract_type: str
     payment_terms_days: int
-    since_date: datetime
+    since_date: date
 
 
-def _safe_date_to_datetime(value: str | None, default: datetime) -> datetime:
-    """Conversión a datetime de forma segura. Si falla o está vacío, devuelve un valor por defecto."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        parsed = datetime.fromisoformat(value.strip())
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=UTC)
-        return parsed.astimezone(UTC)
-    except ValueError:
-        return default
+# =============================================================================
+# INTERFAZ PÚBLICA (CLI)
+# =============================================================================
+def get_documents_parser() -> argparse.ArgumentParser:
+    """Contiene solo los argumentos exclusivos de este módulo."""
+    parser = argparse.ArgumentParser(add_help=False)
+    group = parser.add_argument_group("Opciones de documents.csv")
+    group.add_argument("--avg-degree-documents", type=int, default=5, help="Multiplicador de frecuencia de pedidos por contrato", metavar="N")
+    return parser
 
 
+# =============================================================================
+# FUNCIÓN ORQUESTADORA (MAIN)
+# =============================================================================
+def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplies_csv: Path,
+                             seed: int, avg_out_degree: int) -> Path:
+    """Genera documents.csv abarcando todo el historial usando un generador."""
+    if avg_out_degree <= 0: raise ValueError("avg_out_degree debe ser > 0")
+
+    rng = random.Random(seed)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Carga de contextos
+    company_profiles = _load_company_profiles(companies_csv)
+    pairs = _load_pairs_from_supplies(rel_supplies_csv)
+    if not pairs:
+        raise ValueError("No hay relaciones en rel_supplies.csv para sintetizar documents.csv")
+
+    fieldnames = [
+        "document_id", "doc_type", "edi_standard", "version_number", "issue_date",
+        "due_date", "status", "discrepancy_flag", "currency", "gross_amount",
+        "tax_amount", "total_amount", "payment_terms_days",  "contract_type", "created_at",
+        "supplier_company_id", "buyer_company_id", "lead_time_days", "delay_days", "reference_id",
+    ]
+
+    docs_generated = 0
+
+    # Apertura del archivo en modo escritura y consumo del generador
+    with output_file.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        # Pedimos los documentos de uno en uno al generador y los escribimos
+        for record in _document_stream_generator(pairs, company_profiles, rng, avg_out_degree):
+            writer.writerow(record)
+            docs_generated += 1
+
+    # Control final
+    if docs_generated == 0:
+        logging.warning("No se han generado documentos; revisa since_date en rel_supplies.csv")
+    else:
+        # Opcional: Un log para que veas en consola cuántos se generaron
+        logging.info(f"Éxito: Se han generado {docs_generated} documentos en modo streaming.")
+
+    return output_file
+
+
+# =============================================================================
+# LÓGICA DE ALTO NIVEL (Cargas y Generadores Complejos)
+# =============================================================================
 def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
-    """Carga de perfiles de empresa desde el archivo companies.csv."""
+    """Carga de perfiles de empresa desde companies.csv."""
     if not companies_csv.exists():
         raise FileNotFoundError(f"No existe companies.csv: {companies_csv}")
 
@@ -75,22 +122,18 @@ def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
                 company_id=company_id,
                 country=(row.get("country") or "ES").strip().upper(),
                 industry_code=(row.get("industry_code") or "G46").strip().upper(),
-                baseline_revenue=max(float(row.get("baseline_revenue")), 1_000.0),
+                baseline_revenue=max(_safe_float(row.get("baseline_revenue"), 30_000.0), 30_000.0),
             )
-
-    if not profiles:
-        raise ValueError("companies.csv no contiene perfiles válidos")
-
     return profiles
 
 
 def _load_pairs_from_supplies(rel_supplies_csv: Path) -> list[CompanyPair]:
-    """Carga de datos de relaciones comerciales desde el archivo rel_supplies.csv."""
+    """Carga de contratos desde rel_supplies.csv."""
     if not rel_supplies_csv.exists():
         return []
 
     pairs: list[CompanyPair] = []
-    fallback_since = datetime.now(UTC) - timedelta(days=365)
+    fallback_since = SIMULATION_TODAY - timedelta(days=365)
     with rel_supplies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
@@ -102,233 +145,249 @@ def _load_pairs_from_supplies(rel_supplies_csv: Path) -> list[CompanyPair]:
                 CompanyPair(
                     supplier_company_id=supplier,
                     buyer_company_id=buyer,
-                    payment_terms_days=int(float(row.get("payment_terms_agreed"))),
-                    since_date=_safe_date_to_datetime(row.get("since_date"), fallback_since),
+                    lead_time_days=max(_safe_int(row.get("lead_time_days"), 2), 0),
+                    reliability_score=min(max(_safe_float(row.get("reliability_score"), 0.9), 0.0), 1.0),
+                    agreed_volume_baseline=max(_safe_float(row.get("agreed_volume_baseline"), 1_000.0), 100.0),
+                    contract_type=(row.get("contract_type") or "FRAME").strip().upper(),
+                    payment_terms_days=max(_safe_int(row.get("payment_terms_agreed"), 30), 0),
+                    since_date=_safe_date(row.get("since_date"), fallback_since),
                 )
             )
-
     return pairs
 
 
-def _random_issue_datetime(rng: random.Random, relation_start: datetime) -> datetime:
-    """Genera una fecha de emisión entre inicio de relación comercial y hoy."""
-    now = datetime.now(UTC)
-    start = relation_start.astimezone(UTC)
-    if start >= now:
-        return now
-    window_minutes = int((now - start).total_seconds() // 60)
-    offset_minutes = rng.randint(0, max(window_minutes, 1))
-    return start + timedelta(minutes=offset_minutes)
+def _document_stream_generator(pairs: list[CompanyPair], company_profiles: dict[str, CompanyProfile], 
+                               rng: random.Random, avg_out_degree: int):
+    """Generador que emite documentos B2B de uno en uno."""
+    next_seq = 1
 
+    for pair in pairs:
+        
+        if pair.since_date > SIMULATION_TODAY:
+            continue
+        
+        supplier_profile = company_profiles.get(pair.supplier_company_id)
+        buyer_profile = company_profiles.get(pair.buyer_company_id)
+        
+        if supplier_profile is None or buyer_profile is None:
+            continue
 
-def _base_amount_from_revenue(supplier_revenue: float, buyer_revenue: float,
-                              rng: random.Random,) -> float:
-    """Genera un importe base para el pedido basado en la facturación anual de las empresas involucradas."""
-    min_revenue = max(min(supplier_revenue, buyer_revenue), 10_000.0)
-    lower = max(min_revenue * 0.0002, 300.0)
-    upper = max(min_revenue * 0.02, lower + 250.0)
-    return round(rng.uniform(lower, upper), 2)
+        active_start = min(pair.since_date, SIMULATION_TODAY)
+        active_days = max((SIMULATION_TODAY - active_start).days, 1)
+        active_years = active_days / 365.0
+        
+        total_historical_volume = max(pair.agreed_volume_baseline * active_years, 50.0)
 
+        annual_orders = _determine_order_frequency(pair.contract_type, rng)
+        scaled_annual_orders = _apply_frequency_scale(annual_orders, avg_out_degree)
+        total_orders = max(1, int(round(scaled_annual_orders * active_years)))
 
-def _currency_for_pair(supplier_country: str, buyer_country: str) -> str:
-    if supplier_country == buyer_country:
-        return COUNTRY_CURRENCY.get(supplier_country, "EUR")
-    if supplier_country in COUNTRY_CURRENCY:
-        return COUNTRY_CURRENCY[supplier_country]
-    if buyer_country in COUNTRY_CURRENCY:
-        return COUNTRY_CURRENCY[buyer_country]
-    return "EUR"
+        order_dates = _distribute_dates_with_seasonality(active_start, SIMULATION_TODAY, total_orders, rng)
+        order_amounts = _distribute_volume(total_historical_volume, total_orders, rng)
 
-
-def _tax_rate_for_industry(industry_code: str, rng: random.Random) -> float:
-    """Genera una tasa de impuesto para una industria específica."""
-    rates = INDUSTRY_TAX_RATES.get(industry_code, [0.21])
-    return rng.choice(rates)
+        for order_date, order_gross in zip(order_dates, order_amounts):
+            triplet_records = _generate_triplet_records(
+                base_seq=next_seq, rng=rng, pair=pair,
+                supplier_profile=supplier_profile, buyer_profile=buyer_profile,
+                order_issue=order_date, order_gross=order_gross,
+            )
+            
+            for doc in triplet_records:
+                yield doc
+                
+            next_seq += 3
 
 
 def _generate_triplet_records(base_seq: int, rng: random.Random, pair: CompanyPair,
                               supplier_profile: CompanyProfile, buyer_profile: CompanyProfile,
-                              ) -> list[dict[str, str | int | float | bool]]:
+                              order_issue: date, order_gross: float) -> list[dict]:
     """Generación de secuencia lógica de 3 documentos: Pedido -> Albarán -> Factura."""
-    # Fechas de emisión con lógica temporal con intervalos realistas entre documentos
-    order_issue = _random_issue_datetime(rng, pair.since_date)
-    delivery_issue = order_issue + timedelta(days=rng.randint(1, 10))
-    invoice_issue = delivery_issue + timedelta(days=rng.randint(0, 7))
+    delay_days = _calculate_delay_days(pair.reliability_score, rng)
+    delivery_issue = order_issue + timedelta(days=pair.lead_time_days + delay_days)
+    invoice_issue = delivery_issue + timedelta(days=rng.randint(0, 2))
 
-    # Importe base del pedido calculado a partir de la facturación anual de las empresas, con variabilidad aleatoria.
-    base_amount = _base_amount_from_revenue(
-        supplier_revenue=supplier_profile.baseline_revenue,
-        buyer_revenue=buyer_profile.baseline_revenue,
-        rng=rng,
-    )
-    order_gross = base_amount
     fulfillment_ratio = rng.uniform(0.96, 1.00)
     delivery_gross = round(order_gross * fulfillment_ratio, 2)
     invoice_gross = delivery_gross
     
-    # Tasa de impuesto determinada por la industria del proveedor.
     tax_rate = _tax_rate_for_industry(supplier_profile.industry_code, rng)
     order_tax = round(order_gross * tax_rate, 2)
     delivery_tax = round(delivery_gross * tax_rate, 2)
     invoice_tax = round(invoice_gross * tax_rate, 2)
 
-    # Importe total calculado como base + impuestos.
     order_total = round(order_gross + order_tax, 2)
     delivery_total = round(delivery_gross + delivery_tax, 2)
     invoice_total = round(invoice_gross + invoice_tax, 2)
 
-    # Moneda determinada por los países del proveedor y comprador.
-    currency = _currency_for_pair(supplier_profile.country, buyer_profile.country)
-    version = rng.randint(VERSION_RANGE[0], VERSION_RANGE[1])
-
-    return [
-        {
-            "document_id": f"DOC-{base_seq:09d}",                                           # ID de documento para el pedido
-            "doc_type": "ORDER",                                                            # Tipo de documento: Pedido
-            "edi_standard": rng.choice(EDI_STANDARDS),                                      # Estándar EDI utilizado
-            "version_number": version,                                                      # Número de versión del estándar EDI
-            "issue_date": order_issue.date().isoformat(),                                   # Fecha de emisión del pedido
-            "due_date": "",                                                                 # Los pedidos no tienen fecha de vencimiento definida
-            "status": rng.choice(["OPEN", "ACCEPTED", "PARTIALLY_CONFIRMED"]),              # Estado del pedido
-            "discrepancy_flag": rng.choices([True, False], weights=[0.03, 0.97], k=1)[0],   # Indicador de discrepancia con baja probabilidad
-            "currency": currency,                                                           # Moneda de pago del pedido
-            "gross_amount": order_gross,                                                    # Importe bruto del pedido
-            "tax_amount": order_tax,                                                        # Cantidad de impuestos del pedido
-            "net_amount": order_total,                                                      # Importe neto del pedido
-            "payment_terms_days": pair.payment_terms_days,                                  # Plazo de pago en días
-            "created_at": order_issue.isoformat(),                                          # Fecha de creación del pedido
-        },
-        {
-            "document_id": f"DOC-{base_seq + 1:09d}",                                       # ID de documento para el albarán, secuencial al pedido        
-            "doc_type": "DELIVERY_NOTE",                                                    # Tipo de documento: Albarán
-            "edi_standard": rng.choice(EDI_STANDARDS),                                      # Estándar EDI utilizado para el albarán
-            "version_number": version,                                                      # Número de versión del estándar EDI
-            "issue_date": delivery_issue.date().isoformat(),                                # Fecha de emisión del albarán, después del pedido
-            "due_date": "",                                                                 # Los albaranes no tienen fecha de vencimiento definida
-            "status": rng.choice(["SHIPPED", "DELIVERED", "PARTIALLY_DELIVERED"]),          # Estado del albarán
-            "discrepancy_flag": rng.choices([True, False], weights=[0.04, 0.96], k=1)[0],   # Indicador de discrepancia con baja probabilidad
-            "currency": currency,                                                           # Moneda de pago del albarán, misma que el pedido
-            "gross_amount": delivery_gross,                                                 # Importe bruto del albarán, basado en el pedido con variabilidad
-            "tax_amount": delivery_tax,                                                     # Cantidad de impuestos del albarán, calculada con la misma tasa que el pedido
-            "net_amount": delivery_total,                                                   # Importe neto del albarán
-            "payment_terms_days": pair.payment_terms_days,                                  # Plazo de pago en días, mismo que el pedido
-            "created_at": delivery_issue.isoformat(),                                       # Fecha de creación del albarán, después del pedido
-        },
-        {
-            "document_id": f"DOC-{base_seq + 2:09d}",                                       # ID de documento para la factura, secuencial al albarán               
-            "doc_type": "INVOICE",                                                          # Tipo de documento: Factura
-            "edi_standard": rng.choice(EDI_STANDARDS),                                      # Estándar EDI utilizado para la factura
-            "version_number": version,                                                      # Número de versión del estándar EDI
-            "issue_date": invoice_issue.date().isoformat(),                                 # Fecha de emisión de la factura, después del albarán
-            "due_date": (invoice_issue + timedelta(days=pair.payment_terms_days)).date().isoformat(), # Fecha de vencimiento de la factura, calculada a partir de la fecha de emisión y los términos de pago
-            "status": rng.choice(["ISSUED", "SENT", "PAID", "OVERDUE"]),                    # Estado de la factura
-            "discrepancy_flag": rng.choices([True, False], weights=[0.06, 0.94], k=1)[0],   # Indicador de discrepancia con baja probabilidad
-            "currency": currency,                                                           # Moneda de pago de la factura, misma que el pedido y albarán
-            "gross_amount": invoice_gross,                                                  # Importe bruto de la factura, basado en el pedido con variabilidad
-            "tax_amount": invoice_tax,                                                      # Cantidad de impuestos de la factura, calculada con la misma tasa que el pedido
-            "net_amount": invoice_total,                                                    # Importe neto de la factura, basado en el pedido con variabilidad
-            "payment_terms_days": pair.payment_terms_days,                                  # Plazo de pago en días, mismo que el pedido y albarán
-            "created_at": invoice_issue.isoformat(),                                        # Fecha de creación de la factura, después del albarán
-        },
-    ]
-
-
-def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplies_csv: Path,
-                             seed: int, avg_out_degree: int,) -> Path:
-    """Función principal para sintetizar el archivo documents.csv a partir de los datos de companies.csv y rel_supplies.csv."""
-    if avg_out_degree <= 0:
-        raise ValueError("avg_out_degree debe ser > 0")
-
-    rng = random.Random(seed)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Carga de perfiles de empresa y relaciones comerciales.
-    company_profiles = _load_company_profiles(companies_csv)
-    pairs = _load_pairs_from_supplies(rel_supplies_csv)
-    if not pairs:
-        raise ValueError("No hay relaciones en rel_supplies.csv para sintetizar documents.csv")
-
-    # Definición de los campos del CSV de salida.
-    fieldnames = [
-        "document_id", "doc_type", "edi_standard", "version_number", "issue_date",
-        "due_date", "status", "discrepancy_flag", "currency", "gross_amount",
-        "tax_amount", "net_amount", "payment_terms_days", "created_at",
-    ]
-
-    # Generación de registros para cada triplete de documentos (Pedido, Albarán, Factura) basado en las relaciones comerciales.
-    records: list[dict[str, str | int | float | bool]] = []
-    triplets_to_generate = max(len(pairs) * avg_out_degree, 1)  # Numero de tripletes a generar. 
-
-    # Para cada triplete, se selecciona un par supplier-buyer, se obtienen sus perfiles y se generan los registros.
-    for triplet_index in range(triplets_to_generate):
-        pair = pairs[triplet_index % len(pairs)]
-        supplier_profile = company_profiles.get(pair.supplier_company_id)
-        buyer_profile = company_profiles.get(pair.buyer_company_id)
-        if supplier_profile is None or buyer_profile is None:
-            continue
-
-        # Calculo de base_seq para asegurar que cada triplete tenga IDs de documento únicos y secuenciales.    
-        base_seq = triplet_index * 3 + 1
-        triplet_records = _generate_triplet_records(
-            base_seq=base_seq,
-            rng=rng,
-            pair=pair,
-            supplier_profile=supplier_profile,
-            buyer_profile=buyer_profile,
-        )
-        records.extend(triplet_records)
-
-    # Escritura de los registros generados en el archivo CSV de salida.
-    with output_file.open("w", encoding="utf-8", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        for record in records:
-            writer.writerow(record)
-
-    return output_file
-
-
-def get_documents_parser() -> argparse.ArgumentParser:
-    """Contiene solo los argumentos exclusivos de este módulo."""
-    parser = argparse.ArgumentParser(add_help=False)
-    # Creamos un grupo visual
-    group = parser.add_argument_group("Opciones de documents.csv")
-    group.add_argument("--avg-degree-documents", type=int, default=5, help="Numero de tripletes (Pedido-Albarán-Factura) a generar por cada relación supplier-buyer")
-    return parser
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """
-    Se usa solo cuando ejecutas este script de forma independiente.
-    Junta los argumentos exclusivos heredados con los globales.
-    """
-    parser = argparse.ArgumentParser(
-        description="Generador sintético para documents.csv",
-        parents=[get_documents_parser()] # Hereda --avg-out-degree
-    )
-    # Estos se quedan aquí para no colisionar con el pipeline principal
-    parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
-    parser.add_argument("--output", type=str, default="data/synthetic/documents.csv", help="Ruta de salida de documents.csv",)
-    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv",)
-    parser.add_argument("--supplies", type=str, default="data/synthetic/rel_supplies.csv", help="Ruta del CSV rel_supplies.csv")
-    return parser
-
-
-def main() -> None:
-    """Punto de entrada del programa."""
-    # Lectura de argumentos desde la línea de comandos
-    args = build_parser().parse_args()
+    currency = "EUR"
     
-    # Llamada a la función principal con los parámetros proporcionados
-    result = synthesize_documents_csv(
-        output_file=Path(args.output),
-        companies_csv=Path(args.companies),
-        rel_supplies_csv=Path(args.supplies),
-        seed=args.seed,
-        avg_out_degree=args.avg_out_degree,
-    )
-    print(f"[OK] documents sintetizado -> {result}")
+    order_id = f"DOC-{base_seq:09d}"
+
+    # 1. ORDER (Pedido)
+    order = {
+        "document_id": order_id,
+        "doc_type": "ORDER",                                                                    
+        "edi_standard": rng.choice(EDI_STANDARDS),                                              
+        "version_number": 1,                                                              
+        "issue_date": order_issue.isoformat(),                                                   
+        "due_date": "",                                                                         
+        "status": rng.choice(["OPEN", "ACCEPTED", "PARTIALLY_CONFIRMED"]),                      
+        "discrepancy_flag": rng.choices([True, False], weights=[0.03, 0.97], k=1)[0],           
+        "currency": currency,                                                                   
+        "gross_amount": order_gross,                                                            
+        "tax_amount": order_tax,                                                                
+        "total_amount": order_total,                                                              
+        "payment_terms_days": pair.payment_terms_days,                                          
+        "created_at": datetime.combine(order_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id": pair.supplier_company_id,
+        "buyer_company_id": pair.buyer_company_id,
+        "contract_type": pair.contract_type,
+        "lead_time_days": pair.lead_time_days,
+        "delay_days": 0,
+        "reference_id": "",
+    }
+    
+    # 2. DESADV (Albarán)
+    desadv = {
+        "document_id": f"DOC-{base_seq + 1:09d}",                                               
+        "doc_type": "DESADV",                                                                   
+        "edi_standard": rng.choice(EDI_STANDARDS),                                              
+        "version_number": 1,                                                              
+        "issue_date": delivery_issue.isoformat(),                                                
+        "due_date": "",                                                                         
+        "status": rng.choice(["SHIPPED", "DELIVERED", "PARTIALLY_DELIVERED"]),                  
+        "discrepancy_flag": rng.choices([True, False], weights=[0.04, 0.96], k=1)[0],           
+        "currency": currency,                                                                   
+        "gross_amount": delivery_gross,                                                         
+        "tax_amount": delivery_tax,                                                             
+        "total_amount": delivery_total,                                                           
+        "payment_terms_days": pair.payment_terms_days,                                          
+        "created_at": datetime.combine(delivery_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id": pair.supplier_company_id,
+        "buyer_company_id": pair.buyer_company_id,
+        "contract_type": pair.contract_type,
+        "lead_time_days": pair.lead_time_days,
+        "delay_days": delay_days,
+        "reference_id": order_id,
+    }
+    
+    # 3. INVOICE (Factura)
+    invoice = {
+        "document_id": f"DOC-{base_seq + 2:09d}",                                               
+        "doc_type": "INVOICE",                                                                  
+        "edi_standard": rng.choice(EDI_STANDARDS),                                              
+        "version_number": 1,                                                              
+        "issue_date": invoice_issue.isoformat(),                                                 
+        "due_date": (invoice_issue + timedelta(days=pair.payment_terms_days)).isoformat(),      
+        "status": rng.choice(["ISSUED", "SENT", "PAID", "OVERDUE"]),                            
+        "discrepancy_flag": rng.choices([True, False], weights=[0.06, 0.94], k=1)[0],           
+        "currency": currency,                                                                   
+        "gross_amount": invoice_gross,                                                          
+        "tax_amount": invoice_tax,                                                              
+        "total_amount": invoice_total,                                                            
+        "payment_terms_days": pair.payment_terms_days,                                          
+        "created_at": datetime.combine(invoice_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id": pair.supplier_company_id,
+        "buyer_company_id": pair.buyer_company_id,
+        "contract_type": pair.contract_type,
+        "lead_time_days": pair.lead_time_days,
+        "delay_days": delay_days,
+        "reference_id": order_id,
+    }
+
+    return [order, desadv, invoice]
 
 
-if __name__ == "__main__":
-    main()
+# =============================================================================
+# 5. FUNCIONES AUXILIARES (Helpers / Utils)
+# =============================================================================
+
+def _determine_order_frequency(contract_type: str, rng: random.Random) -> int:
+    if contract_type == "SPOT":
+        return rng.randint(1, 3)
+    if contract_type == "ANNUAL":
+        return rng.choices([1, 2], weights=[0.75, 0.25], k=1)[0]
+    return rng.randint(4, 12)
+
+
+def _apply_frequency_scale(base_orders: int, avg_out_degree: int) -> int:
+    scale = max(avg_out_degree, 1) / 5.0
+    return max(1, int(round(base_orders * scale)))
+
+
+def _distribute_dates_with_seasonality(start_date: date, end_date: date, num_dates: int, rng: random.Random) -> list[date]:
+    """Distribuye fechas forzando la primera en el start_date, y el resto con sesgo estacional."""
+    if num_dates <= 0: return []
+    if num_dates == 1: return [start_date]
+
+    window_days = (end_date - start_date).days
+    if window_days <= 0: return [start_date] * num_dates
+
+    # El primer documento siempre desencadena la relación en start_date
+    picked: list[date] = [start_date]
+    remaining_dates = num_dates - 1
+    
+    max_attempts = max(500, remaining_dates * 40)
+    attempts = 0
+
+    # Distribuimos el resto a lo largo del periodo activo
+    while len(picked) < num_dates and attempts < max_attempts:
+        attempts += 1
+        candidate = start_date + timedelta(days=rng.randint(1, window_days)) # Evitamos el dia 0 porque ya está
+        acceptance = MONTH_WEIGHTS.get(candidate.month, 1.0) / MAX_MONTH_WEIGHT
+        if rng.random() <= acceptance:
+            picked.append(candidate)
+
+    while len(picked) < num_dates:
+        picked.append(start_date + timedelta(days=rng.randint(1, window_days)))
+
+    return sorted(picked)
+
+
+def _distribute_volume(total_volume: float, num_orders: int, rng: random.Random) -> list[float]:
+    if num_orders <= 1:
+        return [round(max(total_volume, 0.01), 2)]
+    cuts = sorted(rng.random() for _ in range(num_orders - 1))
+    cuts = [0.0] + cuts + [1.0]
+    raw_amounts = [max(total_volume * (cuts[i + 1] - cuts[i]), 0.01) for i in range(num_orders)]
+    rounded = [round(amount, 2) for amount in raw_amounts]
+    expected_total = round(total_volume, 2)
+    diff = round(expected_total - sum(rounded), 2)
+    rounded[-1] = round(max(0.01, rounded[-1] + diff), 2)
+    return rounded
+
+
+def _calculate_delay_days(reliability_score: float, rng: random.Random) -> int:
+    if rng.random() < reliability_score:
+        return 0
+    max_delay = int((1.0 - reliability_score) * 20) + 2
+    return rng.randint(1, max_delay)
+
+
+def _tax_rate_for_industry(industry_code: str, rng: random.Random) -> float:
+    rates = INDUSTRY_TAX_RATES.get(industry_code, [0.21])
+    return rng.choice(rates)
+
+
+def _safe_date(value: str | None, default: date) -> date:
+    if value is None or value.strip() == "": return default
+    try:
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
+    except ValueError:
+        return default
+
+
+def _safe_int(value: str | None, default: int) -> int:
+    if value is None or value.strip() == "": return default
+    try:
+        return int(float(value))
+    except ValueError:
+        return default
+
+
+def _safe_float(value: str | None, default: float) -> float:
+    if value is None or value.strip() == "": return default
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return default

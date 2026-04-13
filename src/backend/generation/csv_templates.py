@@ -47,9 +47,15 @@ CSV_SCHEMAS: dict[str, list[str]] = {
 		"currency",
 		"gross_amount",
 		"tax_amount",
-		"net_amount",
+		"total_amount",
 		"payment_terms_days",
+  		"contract_type",
 		"created_at",
+  		"supplier_company_id",
+    	"buyer_company_id",
+     	"lead_time_days",
+      	"delay_days",
+       	"reference_id",
 	],
  
 	"rel_supplies.csv": [
