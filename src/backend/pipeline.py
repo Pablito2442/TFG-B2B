@@ -12,6 +12,8 @@ from src.backend.database.loader import Neo4jBulkLoader
 from src.backend.generation.companies_synthesizer import get_companies_parser, synthesize_companies_csv
 from src.backend.generation.csv_templates import create_csv_templates, get_available_targets
 from src.backend.generation.documents_synthesizer import get_documents_parser, synthesize_documents_csv
+from src.backend.generation.products_synthesizer import get_products_parser, synthesize_products_csv
+from src.backend.generation.rel_contains_synthesizer import synthesize_rel_contains_csv
 from src.backend.generation.supplies_synthesizer import get_supplies_parser, synthesize_rel_supplies_csv
 
 
@@ -27,7 +29,7 @@ def _write_step_artifact(settings: Settings, step: str, payload: dict) -> Path:
 
 
 def run_generate(settings: Settings, csv_target: str, rows: int, 
-                 avg_degree_rel_supplies: int, avg_degree_documents: int,
+                 avg_degree_rel_supplies: int, avg_degree_documents: int, avg_degree_products: int,
                  gamma: float, beta: float, mu: float, 
                  min_comm: int, max_comm: int) -> Path:
     """
@@ -35,25 +37,33 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
     Orquesta la creación de los CSVs. Tiene una dependencia en cascada estricta:
     1. companies.csv (Depende de municipios_españa.csv)
     2. rel_supplies.csv (Depende de companies.csv)
-    3. documents.csv (Depende de companies.csv y rel_supplies.csv)
+    3. products.csv (Depende de companies.csv y rel_supplies.csv)
+    4. documents.csv (Depende de companies.csv y rel_supplies.csv)
+    5. rel_contains.csv (Depende de documents.csv y products.csv)
     """
     # Creación de los CSVs para el target indicado (puede ser "all" o un CSV específico)
     created_csvs = create_csv_templates(settings.data_synthetic_dir, csv_target)
     orden_estricto = {
         "companies.csv": 1,
         "rel_supplies.csv": 2,
-        "documents.csv": 3
+        "products.csv": 3,
+        "documents.csv": 4,
+        "rel_contains.csv": 5,
     }
     # Reordenacion de la lista para cumplir las dependencias en cascada.
     created_csvs.sort(key=lambda path: orden_estricto.get(path.name, 99))
     
     # Parametrización de filas generadas para cada CSV
     companies_rows = 0
+    products_rows = 0
     rel_supplies_rows = 0
     documents_rows = 0
+    rel_contains_rows = 0
     cities_csv_path = settings.data_raw_dir / "municipios_espana.csv"
     companies_csv_path = settings.data_synthetic_dir / "companies.csv"
     rel_supplies_csv_path = settings.data_synthetic_dir / "rel_supplies.csv"
+    products_csv_path = settings.data_synthetic_dir / "products.csv"
+    documents_csv_path = settings.data_synthetic_dir / "documents.csv"
 
     # Iteración sobre los archivos que el usuario ha solicitado generar
     for csv_path in created_csvs:
@@ -80,6 +90,16 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
             )
             with result_path.open("r", encoding="utf-8", newline="") as csv_file:
                 rel_supplies_rows = max(sum(1 for _ in csv_file) - 1, 0)
+        if csv_path.name == "products.csv":
+            result_path = synthesize_products_csv(
+                output_file=csv_path,
+                companies_csv=companies_csv_path,
+                rel_supplies_csv=rel_supplies_csv_path,
+                avg_degree_products=avg_degree_products,
+                seed=settings.seed,
+            )
+            with result_path.open("r", encoding="utf-8", newline="") as csv_file:
+                products_rows = max(sum(1 for _ in csv_file) - 1, 0)
         if csv_path.name == "documents.csv":
             result_path = synthesize_documents_csv(
                 output_file=csv_path,
@@ -90,6 +110,15 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
             )
             with result_path.open("r", encoding="utf-8", newline="") as csv_file:
                 documents_rows = max(sum(1 for _ in csv_file) - 1, 0)
+        if csv_path.name == "rel_contains.csv":
+            result_path = synthesize_rel_contains_csv(
+                output_file=csv_path,
+                documents_csv=documents_csv_path,
+                products_csv=products_csv_path,
+                seed=settings.seed,
+            )
+            with result_path.open("r", encoding="utf-8", newline="") as csv_file:
+                rel_contains_rows = max(sum(1 for _ in csv_file) - 1, 0)
                 
     # Preparación del payload con las métricas de la ejecución para guardarlo como artefacto
     payload = {
@@ -100,12 +129,15 @@ def run_generate(settings: Settings, csv_target: str, rows: int,
         "rows": rows,
         "avg_degree_rel_supplies": avg_degree_rel_supplies,
         "avg_degree_documents": avg_degree_documents,
+        "avg_degree_products": avg_degree_products,
         "csv_target": csv_target,
         "companies_rows_generated": companies_rows,
+        "products_rows_generated": products_rows,
         "rel_supplies_rows_generated": rel_supplies_rows,
         "documents_rows_generated": documents_rows,
+        "rel_contains_rows_generated": rel_contains_rows,
         "generated_csv_files": [str(path) for path in created_csvs],
-        "message": "CSV's generado/s. companies.csv, rel_supplies.csv y documents.csv incluyen datos sintéticos cuando aplica.",
+        "message": "CSV's generado/s. companies.csv, products.csv, rel_supplies.csv, documents.csv y rel_contains.csv incluyen datos sintéticos cuando aplica.",
     }
     return _write_step_artifact(settings, "generate", payload)
 
@@ -152,13 +184,32 @@ def run_analyze(settings: Settings) -> Path:
     return _write_step_artifact(settings, "analyze", payload)
 
 
-def run_all(settings: Settings) -> list[Path]:
+def run_all(settings: Settings, rows: int, avg_degree_products: int,
+            avg_degree_rel_supplies: int, avg_degree_documents: int,
+            gamma: float, beta: float, mu: float,
+            min_comm: int, max_comm: int,
+            batch_size_loader: int) -> list[Path]:
     """
     Ejecuta el pipeline completo de principio a fin (End-to-End).
     Asegura que las fases se ejecuten en el orden lógico estricto.
     """
-    # Ejecución secuencial. Hardcodeamos rows=1000 y avg_out_degree=3 por defecto para el run general
-    artifacts = [run_generate(settings, "all"), run_load(settings), run_analyze(settings)]
+    artifacts = [
+        run_generate(
+            settings,
+            csv_target="all",
+            rows=rows,
+            avg_degree_products=avg_degree_products,
+            avg_degree_rel_supplies=avg_degree_rel_supplies,
+            avg_degree_documents=avg_degree_documents,
+            gamma=gamma,
+            beta=beta,
+            mu=mu,
+            min_comm=min_comm,
+            max_comm=max_comm,
+        ),
+        run_load(settings, batch_size_loader=batch_size_loader),
+        run_analyze(settings),
+    ]
     summary = {
         "step": "all",
         "status": "ok",
@@ -204,6 +255,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=CleanHelpFormatter,
         parents=[
             get_companies_parser(),
+            get_products_parser(),
             get_supplies_parser(),
             get_documents_parser(),
         ]
@@ -242,11 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
             get_companies_parser(),
             get_supplies_parser(),
             get_documents_parser(),
+            get_products_parser(),
         ]
     )
     parser_all._optionals.title = "Opciones generales disponibles"
     parser_all.add_argument("--seed", type=int, default=None, help="Semilla global", metavar="SEED")
-    parser_all.add_argument("--batch_size_loader", type=int, default=10, help="Filas por lote para Neo4j", metavar="N")
+    parser_all.add_argument("--batch_size_loader", type=int, default=2500, help="Filas por lote para Neo4j", metavar="N")
 
     return parser
 
@@ -274,6 +327,7 @@ def main() -> None:
             settings, 
             csv_target=args.csv, 
             rows=getattr(args, 'rows'), 
+            avg_degree_products=getattr(args, 'avg_degree_products'),
             avg_degree_rel_supplies=getattr(args, 'avg_degree_supplies'), 
             avg_degree_documents=getattr(args, 'avg_degree_documents'),
             gamma=getattr(args, 'gamma'),
@@ -293,7 +347,19 @@ def main() -> None:
         print(f"[OK] analyze -> {artifact}")
         
     else:
-        artifacts = run_all(settings)
+        artifacts = run_all(
+            settings,
+            rows=getattr(args, 'rows'),
+            avg_degree_products=getattr(args, 'avg_degree_products'),
+            avg_degree_rel_supplies=getattr(args, 'avg_degree_supplies'),
+            avg_degree_documents=getattr(args, 'avg_degree_documents'),
+            gamma=getattr(args, 'gamma'),
+            beta=getattr(args, 'beta'),
+            mu=getattr(args, 'mu'),
+            min_comm=getattr(args, 'min_community'),
+            max_comm=getattr(args, 'max_community'),
+            batch_size_loader=getattr(args, 'batch_size_loader'),
+        )
         print("[OK] all")
         for artifact in artifacts:
             print(f"  - {artifact}")
