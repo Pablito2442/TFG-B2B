@@ -7,6 +7,7 @@ import random
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, UTC
 from pathlib import Path
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
 # =============================================================================
 # CABECERA (Configuración y Modelos)
@@ -26,6 +27,13 @@ INDUSTRY_TAX_RATES: dict[str, list[float]] = {
     "C25": [0.21], "C26": [0.21], "C28": [0.21], "C29": [0.21],
     "G46": [0.10, 0.21], "H52": [0.21], "J62": [0.21], "M71": [0.21],
 }
+
+
+def _pick(row: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 @dataclass(frozen=True)
 class CompanyProfile:
@@ -74,12 +82,7 @@ def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplie
     if not pairs:
         raise ValueError("No hay relaciones en rel_supplies.csv para sintetizar documents.csv")
 
-    fieldnames = [
-        "document_id", "doc_type", "edi_standard", "version_number", "issue_date",
-        "due_date", "status", "discrepancy_flag", "currency", "gross_amount",
-        "tax_amount", "total_amount", "payment_terms_days",  "contract_type", "created_at",
-        "supplier_company_id", "buyer_company_id", "lead_time_days", "delay_days", "reference_id",
-    ]
+    fieldnames = CSV_SCHEMAS["documents.csv"]
 
     docs_generated = 0
 
@@ -115,14 +118,14 @@ def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
     with companies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            company_id = (row.get("company_id") or "").strip()
+            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
             if not company_id:
                 continue
             profiles[company_id] = CompanyProfile(
                 company_id=company_id,
-                country=(row.get("country") or "ES").strip().upper(),
-                industry_code=(row.get("industry_code") or "G46").strip().upper(),
-                baseline_revenue=max(_safe_float(row.get("baseline_revenue"), 30_000.0), 30_000.0),
+                country=(_pick(row, "country:string", "country") or "ES").strip().upper(),
+                industry_code=(_pick(row, "industry_code:string", "industry_code") or "G46").strip().upper(),
+                baseline_revenue=max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0),
             )
     return profiles
 
@@ -137,20 +140,20 @@ def _load_pairs_from_supplies(rel_supplies_csv: Path) -> list[CompanyPair]:
     with rel_supplies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            supplier = (row.get("supplier_company_id") or "").strip()
-            buyer = (row.get("buyer_company_id") or "").strip()
+            supplier = (_pick(row, ":START_ID(Company)", "supplier_company_id") or "").strip()
+            buyer = (_pick(row, ":END_ID(Company)", "buyer_company_id") or "").strip()
             if not supplier or not buyer or supplier == buyer:
                 continue
             pairs.append(
                 CompanyPair(
                     supplier_company_id=supplier,
                     buyer_company_id=buyer,
-                    lead_time_days=max(_safe_int(row.get("lead_time_days"), 2), 0),
-                    reliability_score=min(max(_safe_float(row.get("reliability_score"), 0.9), 0.0), 1.0),
-                    agreed_volume_baseline=max(_safe_float(row.get("agreed_volume_baseline"), 1_000.0), 100.0),
-                    contract_type=(row.get("contract_type") or "FRAME").strip().upper(),
-                    payment_terms_days=max(_safe_int(row.get("payment_terms_agreed"), 30), 0),
-                    since_date=_safe_date(row.get("since_date"), fallback_since),
+                    lead_time_days=max(_safe_int(_pick(row, "lead_time_days:int", "lead_time_days"), 2), 0),
+                    reliability_score=min(max(_safe_float(_pick(row, "reliability_score:float", "reliability_score"), 0.9), 0.0), 1.0),
+                    agreed_volume_baseline=max(_safe_float(_pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 1_000.0), 100.0),
+                    contract_type=(_pick(row, "contract_type:string", "contract_type") or "FRAME").strip().upper(),
+                    payment_terms_days=max(_safe_int(_pick(row, "payment_terms_agreed:int", "payment_terms_agreed"), 30), 0),
+                    since_date=_safe_date(_pick(row, "since_date:datetime", "since_date"), fallback_since),
                 )
             )
     return pairs
@@ -225,74 +228,74 @@ def _generate_triplet_records(base_seq: int, rng: random.Random, pair: CompanyPa
 
     # 1. ORDER (Pedido)
     order = {
-        "document_id": order_id,
-        "doc_type": "ORDER",                                                                    
-        "edi_standard": rng.choice(EDI_STANDARDS),                                              
-        "version_number": 1,                                                              
-        "issue_date": order_issue.isoformat(),                                                   
-        "due_date": "",                                                                         
-        "status": rng.choice(["OPEN", "ACCEPTED", "PARTIALLY_CONFIRMED"]),                      
-        "discrepancy_flag": rng.choices([True, False], weights=[0.03, 0.97], k=1)[0],           
-        "currency": currency,                                                                   
-        "gross_amount": order_gross,                                                            
-        "tax_amount": order_tax,                                                                
-        "total_amount": order_total,                                                              
-        "payment_terms_days": pair.payment_terms_days,                                          
-        "created_at": datetime.combine(order_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
-        "supplier_company_id": pair.supplier_company_id,
-        "buyer_company_id": pair.buyer_company_id,
-        "contract_type": pair.contract_type,
-        "lead_time_days": pair.lead_time_days,
-        "delay_days": 0,
-        "reference_id": "",
+        "document_id:ID(Document)": order_id,
+        "doc_type:string": "ORDER",
+        "edi_standard:string": rng.choice(EDI_STANDARDS),
+        "version_number:int": 1,
+        "issue_date:datetime": order_issue.isoformat(),
+        "due_date:datetime": "",
+        "status:string": rng.choice(["OPEN", "ACCEPTED", "PARTIALLY_CONFIRMED"]),
+        "discrepancy_flag:boolean": rng.choices([True, False], weights=[0.03, 0.97], k=1)[0],
+        "currency:string": currency,
+        "gross_amount:float": order_gross,
+        "tax_amount:float": order_tax,
+        "total_amount:float": order_total,
+        "payment_terms_days:int": pair.payment_terms_days,
+        "contract_type:string": pair.contract_type,
+        "lead_time_days:int": pair.lead_time_days,
+        "created_at:datetime": datetime.combine(order_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id:string": pair.supplier_company_id,
+        "buyer_company_id:string": pair.buyer_company_id,
+        "delay_days:int": 0,
+        "reference_id:string": "",
     }
     
     # 2. DESADV (Albarán)
     desadv = {
-        "document_id": f"DOC-{base_seq + 1:09d}",                                               
-        "doc_type": "DESADV",                                                                   
-        "edi_standard": rng.choice(EDI_STANDARDS),                                              
-        "version_number": 1,                                                              
-        "issue_date": delivery_issue.isoformat(),                                                
-        "due_date": "",                                                                         
-        "status": rng.choice(["SHIPPED", "DELIVERED", "PARTIALLY_DELIVERED"]),                  
-        "discrepancy_flag": rng.choices([True, False], weights=[0.04, 0.96], k=1)[0],           
-        "currency": currency,                                                                   
-        "gross_amount": delivery_gross,                                                         
-        "tax_amount": delivery_tax,                                                             
-        "total_amount": delivery_total,                                                           
-        "payment_terms_days": pair.payment_terms_days,                                          
-        "created_at": datetime.combine(delivery_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
-        "supplier_company_id": pair.supplier_company_id,
-        "buyer_company_id": pair.buyer_company_id,
-        "contract_type": pair.contract_type,
-        "lead_time_days": pair.lead_time_days,
-        "delay_days": delay_days,
-        "reference_id": order_id,
+        "document_id:ID(Document)": f"DOC-{base_seq + 1:09d}",
+        "doc_type:string": "DESADV",
+        "edi_standard:string": rng.choice(EDI_STANDARDS),
+        "version_number:int": 1,
+        "issue_date:datetime": delivery_issue.isoformat(),
+        "due_date:datetime": "",
+        "status:string": rng.choice(["SHIPPED", "DELIVERED", "PARTIALLY_DELIVERED"]),
+        "discrepancy_flag:boolean": rng.choices([True, False], weights=[0.04, 0.96], k=1)[0],
+        "currency:string": currency,
+        "gross_amount:float": delivery_gross,
+        "tax_amount:float": delivery_tax,
+        "total_amount:float": delivery_total,
+        "payment_terms_days:int": pair.payment_terms_days,
+        "contract_type:string": pair.contract_type,
+        "lead_time_days:int": pair.lead_time_days,
+        "created_at:datetime": datetime.combine(delivery_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id:string": pair.supplier_company_id,
+        "buyer_company_id:string": pair.buyer_company_id,
+        "delay_days:int": delay_days,
+        "reference_id:string": order_id,
     }
     
     # 3. INVOICE (Factura)
     invoice = {
-        "document_id": f"DOC-{base_seq + 2:09d}",                                               
-        "doc_type": "INVOICE",                                                                  
-        "edi_standard": rng.choice(EDI_STANDARDS),                                              
-        "version_number": 1,                                                              
-        "issue_date": invoice_issue.isoformat(),                                                 
-        "due_date": (invoice_issue + timedelta(days=pair.payment_terms_days)).isoformat(),      
-        "status": rng.choice(["ISSUED", "SENT", "PAID", "OVERDUE"]),                            
-        "discrepancy_flag": rng.choices([True, False], weights=[0.06, 0.94], k=1)[0],           
-        "currency": currency,                                                                   
-        "gross_amount": invoice_gross,                                                          
-        "tax_amount": invoice_tax,                                                              
-        "total_amount": invoice_total,                                                            
-        "payment_terms_days": pair.payment_terms_days,                                          
-        "created_at": datetime.combine(invoice_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
-        "supplier_company_id": pair.supplier_company_id,
-        "buyer_company_id": pair.buyer_company_id,
-        "contract_type": pair.contract_type,
-        "lead_time_days": pair.lead_time_days,
-        "delay_days": delay_days,
-        "reference_id": order_id,
+        "document_id:ID(Document)": f"DOC-{base_seq + 2:09d}",
+        "doc_type:string": "INVOICE",
+        "edi_standard:string": rng.choice(EDI_STANDARDS),
+        "version_number:int": 1,
+        "issue_date:datetime": invoice_issue.isoformat(),
+        "due_date:datetime": (invoice_issue + timedelta(days=pair.payment_terms_days)).isoformat(),
+        "status:string": rng.choice(["ISSUED", "SENT", "PAID", "OVERDUE"]),
+        "discrepancy_flag:boolean": rng.choices([True, False], weights=[0.06, 0.94], k=1)[0],
+        "currency:string": currency,
+        "gross_amount:float": invoice_gross,
+        "tax_amount:float": invoice_tax,
+        "total_amount:float": invoice_total,
+        "payment_terms_days:int": pair.payment_terms_days,
+        "contract_type:string": pair.contract_type,
+        "lead_time_days:int": pair.lead_time_days,
+        "created_at:datetime": datetime.combine(invoice_issue, datetime.min.time(), tzinfo=UTC).replace(hour=10).isoformat(),
+        "supplier_company_id:string": pair.supplier_company_id,
+        "buyer_company_id:string": pair.buyer_company_id,
+        "delay_days:int": delay_days,
+        "reference_id:string": order_id,
     }
 
     return [order, desadv, invoice]

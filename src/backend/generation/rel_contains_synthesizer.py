@@ -5,6 +5,8 @@ import random
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+import typing
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
 # =============================================================================
 # CABECERA (Configuracion y catalogo)
@@ -20,6 +22,13 @@ DOC_TYPE_LINE_STATUS = {
     "DESADV": "SHIPPED",
     "INVOICE": "BILLED",
 }
+
+
+def _pick(row: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 
 @dataclass(frozen=True)
@@ -65,27 +74,17 @@ def synthesize_rel_contains_csv(output_file: Path, documents_csv: Path, products
     rng = random.Random(seed)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    documents = _load_documents(documents_csv)
+    # documents = _load_documents(documents_csv)
     products_by_supplier = _load_products_by_supplier(products_csv)
 
-    fieldnames = [
-        "document_id",
-        "product_id",
-        "line_id",
-        "lot_number",
-        "quantity",
-        "unit_price",
-        "discount_pct",
-        "line_amount",
-        "line_status",
-        "expected_delivery_date",
-    ]
+    fieldnames = CSV_SCHEMAS["rel_contains.csv"]
 
     with output_file.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
 
-        for root_document, chain_documents in _group_documents_by_traceability(documents):
+        # for root_document, chain_documents in _group_documents_by_traceability(documents):
+        for root_document, chain_documents in _stream_document_chains(documents_csv):
             catalog = products_by_supplier.get(root_document.supplier_company_id, [])
             if not catalog:
                 raise ValueError(
@@ -102,16 +101,17 @@ def synthesize_rel_contains_csv(output_file: Path, documents_csv: Path, products
                     quantity = round(max(line_amount / max(net_unit_price, 0.01), 0.001), 4)
                     writer.writerow(
                         {
-                            "document_id": document.document_id,
-                            "product_id": blueprint.product_id,
-                            "line_id": f"{document.document_id}-L{line_index:03d}",
-                            "lot_number": blueprint.lot_number,
-                            "quantity": quantity,
-                            "unit_price": round(blueprint.unit_price, 4),
-                            "discount_pct": round(blueprint.discount_pct, 4),
-                            "line_amount": round(line_amount, 2),
-                            "line_status": DOC_TYPE_LINE_STATUS.get(document.doc_type, "OPEN"),
-                            "expected_delivery_date": blueprint.expected_delivery_date.isoformat(),
+                            "line_id:string": f"{document.document_id}-L{line_index:03d}",
+                            "lot_number:string": blueprint.lot_number,
+                            "quantity:float": quantity,
+                            "unit_price:float": round(blueprint.unit_price, 4),
+                            "discount_pct:float": round(blueprint.discount_pct, 4),
+                            "line_amount:float": round(line_amount, 2),
+                            "line_status:string": DOC_TYPE_LINE_STATUS.get(document.doc_type, "OPEN"),
+                            "expected_delivery_date:datetime": blueprint.expected_delivery_date.isoformat(),
+                            ":START_ID(Document)": document.document_id,
+                            ":END_ID(Product)": blueprint.product_id,
+                            ":TYPE": "CONTAINS",
                         }
                     )
 
@@ -120,30 +120,79 @@ def synthesize_rel_contains_csv(output_file: Path, documents_csv: Path, products
 # =============================================================================
 # FUNCIONES AUXILIARES (Helpers / Utils)
 # =============================================================================
-def _load_documents(documents_csv: Path) -> list[DocumentRecord]:
-    """Carga documentos desde un CSV, validando y limpiando los datos."""
+def _stream_document_chains(documents_csv: Path) -> typing.Iterator[tuple[DocumentRecord, list[DocumentRecord]]]:
+    """
+    Lee documents.csv en streaming (O(1) memoria) aprovechando que las cadenas
+    (Pedido -> Albarán -> Factura) se escribieron de forma secuencial y contigua.
+    """
     if not documents_csv.exists():
         raise FileNotFoundError(f"No existe documents.csv: {documents_csv}")
 
-    documents: list[DocumentRecord] = []
+    current_chain: list[DocumentRecord] = []
+    current_root_id: str | None = None
+
     with documents_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            document_id = (row.get("document_id") or "").strip()
+            document_id = (_pick(row, "document_id:ID(Document)", "document_id") or "").strip()
             if not document_id:
                 continue
-            documents.append(
-                DocumentRecord(
-                    document_id=document_id,
-                    doc_type=(row.get("doc_type") or "ORDER").strip().upper(),
-                    issue_date=_safe_date(row.get("issue_date"), date(2026, 1, 1)),
-                    gross_amount=max(_safe_float(row.get("gross_amount"), 0.0), 0.0),
-                    supplier_company_id=(row.get("supplier_company_id") or "").strip(),
-                    reference_id=(row.get("reference_id") or "").strip(),
-                )
+                
+            doc = DocumentRecord(
+                document_id=document_id,
+                doc_type=(_pick(row, "doc_type:string", "doc_type") or "ORDER").strip().upper(),
+                issue_date=_safe_date(_pick(row, "issue_date:datetime", "issue_date"), date(2026, 1, 1)),
+                gross_amount=max(_safe_float(_pick(row, "gross_amount:float", "gross_amount"), 0.0), 0.0),
+                supplier_company_id=(_pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip(),
+                reference_id=(_pick(row, "reference_id:string", "reference_id") or "").strip(),
             )
 
-    return documents
+            # Determinamos cuál es el "padre" de este documento
+            root_id = doc.document_id if not doc.reference_id else doc.reference_id
+
+            if current_root_id is None:
+                current_root_id = root_id
+                current_chain.append(doc)
+            elif root_id == current_root_id:
+                # Pertenece a la misma cadena que estamos procesando
+                current_chain.append(doc)
+            else:
+                # Cambio de cadena: Yield de la cadena anterior y reset
+                root_doc = next((d for d in current_chain if d.doc_type == "ORDER"), current_chain[0])
+                yield root_doc, current_chain
+                
+                current_root_id = root_id
+                current_chain = [doc]
+
+        # No olvidar hacer yield de la última cadena al terminar el archivo
+        if current_chain:
+            root_doc = next((d for d in current_chain if d.doc_type == "ORDER"), current_chain[0])
+            yield root_doc, current_chain
+            
+# def _load_documents(documents_csv: Path) -> list[DocumentRecord]:
+#     """Carga documentos desde un CSV, validando y limpiando los datos."""
+#     if not documents_csv.exists():
+#         raise FileNotFoundError(f"No existe documents.csv: {documents_csv}")
+
+#     documents: list[DocumentRecord] = []
+#     with documents_csv.open("r", encoding="utf-8", newline="") as csv_file:
+#         reader = csv.DictReader(csv_file)
+#         for row in reader:
+#             document_id = (row.get("document_id") or "").strip()
+#             if not document_id:
+#                 continue
+#             documents.append(
+#                 DocumentRecord(
+#                     document_id=document_id,
+#                     doc_type=(row.get("doc_type") or "ORDER").strip().upper(),
+#                     issue_date=_safe_date(row.get("issue_date"), date(2026, 1, 1)),
+#                     gross_amount=max(_safe_float(row.get("gross_amount"), 0.0), 0.0),
+#                     supplier_company_id=(row.get("supplier_company_id") or "").strip(),
+#                     reference_id=(row.get("reference_id") or "").strip(),
+#                 )
+#             )
+
+#     return documents
 
 
 def _load_products_by_supplier(products_csv: Path) -> dict[str, list[ProductRecord]]:
@@ -155,43 +204,43 @@ def _load_products_by_supplier(products_csv: Path) -> dict[str, list[ProductReco
     with products_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            product_id = (row.get("product_id") or "").strip()
-            supplier_company_id = (row.get("supplier_company_id") or "").strip()
+            product_id = (_pick(row, "product_id:ID(Product)", "product_id") or "").strip()
+            supplier_company_id = (_pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip()
             if not product_id or not supplier_company_id:
                 continue
             products_by_supplier.setdefault(supplier_company_id, []).append(
                 ProductRecord(
                     product_id=product_id,
                     supplier_company_id=supplier_company_id,
-                    base_price=max(_safe_float(row.get("base_price"), 1.0), 0.01),
-                    lead_time_baseline_days=max(_safe_int(row.get("lead_time_baseline_days"), 1), 0),
-                    criticality=(row.get("criticality") or "MEDIUM").strip().upper(),
-                    unit=(row.get("unit") or "unit").strip(),
+                    base_price=max(_safe_float(_pick(row, "base_price:float", "base_price"), 1.0), 0.01),
+                    lead_time_baseline_days=max(_safe_int(_pick(row, "lead_time_baseline_days:int", "lead_time_baseline_days"), 1), 0),
+                    criticality=(_pick(row, "criticality:string", "criticality") or "MEDIUM").strip().upper(),
+                    unit=(_pick(row, "unit:string", "unit") or "unit").strip(),
                 )
             )
 
     return products_by_supplier
 
 
-def _group_documents_by_traceability(documents: list[DocumentRecord]) -> list[tuple[DocumentRecord, list[DocumentRecord]]]:
-    """Agrupa documentos en cadenas de trazabilidad, ordenando por tipo y fecha."""
-    groups: dict[str, list[DocumentRecord]] = {}
-    ordered_roots: list[str] = []
+# def _group_documents_by_traceability(documents: list[DocumentRecord]) -> list[tuple[DocumentRecord, list[DocumentRecord]]]:
+#     """Agrupa documentos en cadenas de trazabilidad, ordenando por tipo y fecha."""
+#     groups: dict[str, list[DocumentRecord]] = {}
+#     ordered_roots: list[str] = []
 
-    for document in documents:
-        root_id = document.document_id if not document.reference_id else document.reference_id
-        if root_id not in groups:
-            groups[root_id] = []
-            ordered_roots.append(root_id)
-        groups[root_id].append(document)
+#     for document in documents:
+#         root_id = document.document_id if not document.reference_id else document.reference_id
+#         if root_id not in groups:
+#             groups[root_id] = []
+#             ordered_roots.append(root_id)
+#         groups[root_id].append(document)
 
-    result: list[tuple[DocumentRecord, list[DocumentRecord]]] = []
-    for root_id in ordered_roots:
-        chain_documents = sorted(groups[root_id], key=lambda doc: (DOC_TYPE_RANK.get(doc.doc_type, 99), doc.issue_date, doc.document_id))
-        root_document = next((doc for doc in chain_documents if doc.doc_type == "ORDER"), chain_documents[0])
-        result.append((root_document, chain_documents))
+#     result: list[tuple[DocumentRecord, list[DocumentRecord]]] = []
+#     for root_id in ordered_roots:
+#         chain_documents = sorted(groups[root_id], key=lambda doc: (DOC_TYPE_RANK.get(doc.doc_type, 99), doc.issue_date, doc.document_id))
+#         root_document = next((doc for doc in chain_documents if doc.doc_type == "ORDER"), chain_documents[0])
+#         result.append((root_document, chain_documents))
 
-    return result
+#     return result
 
 
 def _build_line_blueprints(root_document: DocumentRecord, catalog: list[ProductRecord], rng: random.Random) -> list[LineBlueprint]:

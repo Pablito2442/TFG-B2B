@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
 from faker import Faker
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
 # =============================================================================
 # CABECERA (Configuración y Modelos)
@@ -90,11 +91,7 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
     for prov, cities_list in cities_by_province.items():
         weights_by_province[prov] = [max(point.population, 1) for point in cities_list]
         
-    fieldnames = [
-        "company_id", "legal_name", "tax_id", "edi_endpoint", "node_role",
-        "country", "region", "city", "latitude", "longitude",
-        "industry_code", "size_band", "baseline_revenue", "created_at", "is_active",
-    ]
+    fieldnames = CSV_SCHEMAS["companies.csv"]
     
     used_tax_ids = set()
     
@@ -131,23 +128,23 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
             if attempts == max_attempts:
                 cif_candidate = f"ESX{index:07d}"
                 used_tax_ids.add(cif_candidate)
-
+                
             record = {
-                "company_id": company_id,
-                "legal_name": fake.company(),
-                "tax_id": cif_candidate,
-                "edi_endpoint": f"as2://edi.{company_id.lower()}.b2b.local/inbox",
-                "node_role": _node_role_from_lfr(profile.degree_propensity, profile.mixing_mu, rng),
-                "country": "ES",
-                "region": city_point.province,
-                "city": city_point.municipality,
-                "latitude": round(city_point.lat + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
-                "longitude": round(city_point.lon + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
-                "industry_code": _industry_from_lfr(profile.preferred_industries, rng),
-                "size_band": size_band,
-                "baseline_revenue": _baseline_revenue(size_band, rng),
-                "created_at": fake.date_time_between(start_date='-8y', end_date='now', tzinfo=timezone.utc).isoformat(),
-                "is_active": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
+                "company_id:ID(Company)": company_id,
+                "legal_name:string": fake.company(),
+                "tax_id:string": cif_candidate,
+                "edi_endpoint:string": f"as2://edi.{company_id.lower()}.b2b.local/inbox",
+                "node_role:string": _node_role_from_lfr(profile.degree_propensity, profile.mixing_mu, rng),
+                "country:string": "ES",
+                "region:string": city_point.province,
+                "city:string": city_point.municipality,
+                "latitude:float": round(city_point.lat + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
+                "longitude:float": round(city_point.lon + rng.uniform(-GEO_JITTER_DEG, GEO_JITTER_DEG), 6),
+                "industry_code:string": _industry_from_lfr(profile.preferred_industries, rng),
+                "size_band:string": size_band,
+                "baseline_revenue:float": _baseline_revenue(size_band, rng),
+                "created_at:datetime": fake.date_time_between(start_date='-8y', end_date='now', tzinfo=timezone.utc).isoformat(),
+                "is_active:boolean": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
             }
             writer.writerow(record)
 

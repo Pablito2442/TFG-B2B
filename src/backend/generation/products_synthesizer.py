@@ -6,6 +6,7 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
     # =============================================================================
     # CABECERA (Configuracion y catalogo)
@@ -120,6 +121,13 @@ ADJECTIVES = [
 
 CRITICALITY_LEVELS = ["LOW", "MEDIUM", "HIGH"]
 
+
+def _pick(row: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
+
 @dataclass(frozen=True)
 class SupplierProfile:
     company_id: str
@@ -161,11 +169,7 @@ def synthesize_products_csv(output_file: Path, companies_csv: Path, rel_supplies
     # Numero de productos a generar basado en el numero de proveedores y argumento (avg-degree-products)
     rows = max(len(suppliers) * avg_degree_products, 1)
 
-    fieldnames = [
-        "product_id", "sku", "hs_code", "name", "category",
-        "unit", "base_price", "lead_time_baseline_days", 
-          "criticality", "is_substitutable", "supplier_company_id",
-    ]
+    fieldnames = CSV_SCHEMAS["products.csv"]
 
     # Calculo de pesos para seleccion de proveedores y categorias
     used_skus: set[str] = set()
@@ -202,17 +206,17 @@ def synthesize_products_csv(output_file: Path, companies_csv: Path, rel_supplies
 
             writer.writerow(
                 {
-                    "product_id": f"PROD-{idx:07d}",
-                    "sku": sku,
-                    "hs_code": hs_code,
-                    "name": name,
-                    "category": category_cfg["label"],
-                    "unit": unit,
-                    "base_price": base_price,
-                    "lead_time_baseline_days": lead_time,
-                    "criticality": criticality,
-                    "is_substitutable": substitutable,
-                    "supplier_company_id": supplier.company_id,
+                    "product_id:ID(Product)": f"PROD-{idx:07d}",
+                    "sku:string": sku,
+                    "hs_code:string": hs_code,
+                    "name:string": name,
+                    "category:string": category_cfg["label"],
+                    "unit:string": unit,
+                    "base_price:float": base_price,
+                    "lead_time_baseline_days:int": lead_time,
+                    "criticality:string": criticality,
+                    "is_substitutable:boolean": substitutable,
+                    "supplier_company_id:string": supplier.company_id,
                 }
             )
 
@@ -235,12 +239,12 @@ def _load_supplier_profiles(companies_csv: Path, rel_supplies_csv: Path, rng: ra
     with companies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            company_id = (row.get("company_id") or "").strip()
+            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
             if not company_id:
                 continue
             
-            industry_code = (row.get("industry_code") or "").strip().upper()
-            baseline_revenue = max(_safe_float(row.get("baseline_revenue"), 30_000.0), 30_000.0)
+            industry_code = (_pick(row, "industry_code:string", "industry_code") or "").strip().upper()
+            baseline_revenue = max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0)
             companies[company_id] = (industry_code, baseline_revenue)
 
     stats: dict[str, dict[str, float]] = {} # supplier_company_id -> {out_degree, agreed_volume}
@@ -248,12 +252,12 @@ def _load_supplier_profiles(companies_csv: Path, rel_supplies_csv: Path, rng: ra
     with rel_supplies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            supplier_company_id = (row.get("supplier_company_id") or "").strip()
+            supplier_company_id = (_pick(row, ":START_ID(Company)", "supplier_company_id") or "").strip()
             if not supplier_company_id or supplier_company_id not in companies:
                 continue
             bucket = stats.setdefault(supplier_company_id, {"out_degree": 0.0, "agreed_volume": 0.0})
             bucket["out_degree"] += 1.0
-            bucket["agreed_volume"] += max(_safe_float(row.get("agreed_volume_baseline"), 0.0), 0.0)
+            bucket["agreed_volume"] += max(_safe_float(_pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 0.0), 0.0)
 
     suppliers: list[SupplierProfile] = []
     for supplier_company_id, values in stats.items():

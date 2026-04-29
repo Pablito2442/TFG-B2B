@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import math
 import random
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import logging         
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
 # =============================================================================
 # CABECERA (Configuración y Modelos)
@@ -16,6 +18,13 @@ CONTRACT_TYPES = ["FRAME", "SPOT", "ANNUAL", "MULTIYEAR"]
 PAYMENT_TERMS = [15, 30, 45, 60, 90]
 PAYMENT_TERMS_WEIGHTS = [0.05, 0.45, 0.25, 0.20, 0.05]
 SIMULATION_TODAY = date(2026, 1, 1)  # Reemplaza con date.today()
+
+
+def _pick(row: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 
 # @dataclass para almacenar de forma inmutable la información esencial de las empresas.
@@ -76,9 +85,9 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
         reader = csv.DictReader(csv_file)
         # Extraemos solo los campos del .csv
         for row in reader:
-            company_id = (row.get("company_id") or "").strip()
-            node_role = (row.get("node_role") or "").strip().upper()
-            company_created_at = _parse_created_at(row.get("created_at"))
+            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
+            node_role = (_pick(row, "node_role:string", "node_role") or "").strip().upper()
+            company_created_at = _parse_created_at(_pick(row, "created_at:datetime", "created_at"))
             
             if not company_id:
                 continue
@@ -90,10 +99,10 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
                 CompanyRecord(
                     company_id=company_id,
                     node_role=node_role,
-                    region=(row.get("region") or "").strip() or "UNKNOWN",
-                    industry_code=(row.get("industry_code") or "").strip() or "UNKNOWN",
-                    size_band=(row.get("size_band") or "").strip() or "micro",
-                    baseline_revenue=max(_safe_float(row.get("baseline_revenue"), 1.0), 1.0),
+                    region=(_pick(row, "region:string", "region") or "").strip() or "UNKNOWN",
+                    industry_code=(_pick(row, "industry_code:string", "industry_code") or "").strip() or "UNKNOWN",
+                    size_band=(_pick(row, "size_band:string", "size_band") or "").strip() or "micro",
+                    baseline_revenue=max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 1.0), 1.0),
                     created_at=company_created_at,
                 )
             )
@@ -110,19 +119,20 @@ def _generate_topology_edges(companies: list[CompanyRecord], avg_out_degree: int
     # Preparación de estructuras y cálculos base
     community_buckets, suppliers, buyers, community_keys = _build_community_structures(companies)
     target_edges, max_possible_edges = _calculate_edge_targets(len(companies), len(suppliers), len(buyers), avg_out_degree)
-    pool_weights, comm_supplier_weights, comm_buyer_weights = _precalculate_community_weights(community_buckets, community_keys)
+    pool_cum_weights, comm_supplier_cum_weights, comm_buyer_cum_weights = _precalculate_community_weights(community_buckets, community_keys)
 
-    # Funciones Auxiliares para selección eficiente de candidatos y comunidades
+    # Funciones Auxiliares para selección eficiente de candidatos y comunidades 
     def _pick_candidate(key: tuple[str, str], role: str) -> CompanyRecord:
-        """Selecciona un candidato en O(1) leyendo el pre-cálculo."""
+        """Selecciona un candidato en O(log N) usando búsqueda binaria."""
         pool = community_buckets[key][role]
-        weights = pool_weights[(key, role)]
-        return rng.choices(pool, weights=weights, k=1)[0]
+        cum_weights = pool_cum_weights[(key, role)]
+        # Fíjate que cambiamos 'weights=' por 'cum_weights='
+        return rng.choices(pool, cum_weights=cum_weights, k=1)[0]
 
     def _pick_community(role: str) -> tuple[str, str]:
-        """Selecciona una comunidad en base al peso pre-calculado total de la misma."""
-        w = comm_supplier_weights if role == "suppliers" else comm_buyer_weights
-        return rng.choices(community_keys, weights=w, k=1)[0]
+        """Selecciona una comunidad en O(log C)."""
+        cum_w = comm_supplier_cum_weights if role == "suppliers" else comm_buyer_cum_weights
+        return rng.choices(community_keys, cum_weights=cum_w, k=1)[0]
 
     # Generación de Aristas (Bucle principal)
     edges: set[tuple[str, str]] = set()
@@ -240,17 +250,33 @@ def _calculate_edge_targets(total_companies: int, total_suppliers: int, total_bu
 
 
 def _precalculate_community_weights(community_buckets: dict, community_keys: list) -> tuple[dict, list[float], list[float]]:
-    """Precalcula los pesos de Preferential Attachment (Scale-Free) para selección eficiente."""
-    pool_weights = {}
+    """Precalcula los pesos ACUMULADOS para selección eficiente O(log N)."""
+    pool_cum_weights = {}
     
     for key, bucket in community_buckets.items():
-        pool_weights[(key, "suppliers")] = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["suppliers"]]
-        pool_weights[(key, "buyers")] = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["buyers"]]
+        # Calculamos pesos base
+        supplier_weights = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["suppliers"]]
+        buyer_weights = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["buyers"]]
+        
+        # Acumulamos los pesos (solo una vez por comunidad)
+        pool_cum_weights[(key, "suppliers")] = list(itertools.accumulate(supplier_weights))
+        pool_cum_weights[(key, "buyers")] = list(itertools.accumulate(buyer_weights))
 
-    comm_supplier_weights = [sum(pool_weights[(key, "suppliers")]) for key in community_keys]
-    comm_buyer_weights = [sum(pool_weights[(key, "buyers")]) for key in community_keys]
+    # Para las comunidades, el peso total de la comunidad es el último valor de su lista acumulada
+    comm_supplier_weights = [
+        pool_cum_weights[(key, "suppliers")][-1] if pool_cum_weights[(key, "suppliers")] else 0 
+        for key in community_keys
+    ]
+    comm_buyer_weights = [
+        pool_cum_weights[(key, "buyers")][-1] if pool_cum_weights[(key, "buyers")] else 0 
+        for key in community_keys
+    ]
 
-    return pool_weights, comm_supplier_weights, comm_buyer_weights
+    # Acumulamos también los pesos de selección de comunidad
+    comm_supplier_cum_weights = list(itertools.accumulate(comm_supplier_weights))
+    comm_buyer_cum_weights = list(itertools.accumulate(comm_buyer_weights))
+
+    return pool_cum_weights, comm_supplier_cum_weights, comm_buyer_cum_weights
 
 
 def _write_supplies_to_csv(output_file: Path, edges: set[tuple[str, str]], companies: list[CompanyRecord], rng: random.Random) -> None:
@@ -258,11 +284,7 @@ def _write_supplies_to_csv(output_file: Path, edges: set[tuple[str, str]], compa
     companies_dict = {c.company_id: c for c in companies}
     
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [
-        "supplier_company_id", "buyer_company_id", "since_date",
-        "lead_time_days", "reliability_score", "agreed_volume_baseline",
-        "is_exclusive_supplier", "payment_terms_agreed", "contract_type",
-    ]
+    fieldnames = CSV_SCHEMAS["rel_supplies.csv"]
 
     with output_file.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -304,15 +326,16 @@ def _write_supplies_to_csv(output_file: Path, edges: set[tuple[str, str]], compa
                     is_exclusive = True
 
             writer.writerow({
-                "supplier_company_id": supplier_id,                                              
-                "buyer_company_id": buyer_id,                                                    
-                "since_date": _random_since_date(rng, earliest_possible_date),                  
-                "lead_time_days": lead_time,                                           
-                "reliability_score": reliability,                                                                                                   
-                "agreed_volume_baseline": max(agreed_volume, 500.0),               
-                "is_exclusive_supplier": is_exclusive,          
-                "payment_terms_agreed": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],  
-                "contract_type": contract_type,                                              
+                ":START_ID(Company)": supplier_id,
+                ":END_ID(Company)": buyer_id,
+                "since_date:datetime": _random_since_date(rng, earliest_possible_date),
+                "lead_time_days:int": lead_time,
+                "reliability_score:float": reliability,
+                "agreed_volume_baseline:float": max(agreed_volume, 500.0),
+                "is_exclusive_supplier:boolean": is_exclusive,
+                "payment_terms_agreed:int": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],
+                "contract_type:string": contract_type,
+                ":TYPE": "SUPPLIES",
             })
 
 
