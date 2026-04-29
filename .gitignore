@@ -14,7 +14,7 @@
 # Evita exponer contraseñas de Neo4j y URIs de conexión
 .env
 .env.*
-
+!.env.example
 
 # 3. PYTHON Y ENTORNOS VIRTUALES
 # Caché de compilación de Python

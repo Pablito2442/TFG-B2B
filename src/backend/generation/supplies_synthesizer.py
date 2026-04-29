@@ -2,45 +2,80 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
+import math
 import random
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+import logging         
+from src.backend.generation.csv_templates import CSV_SCHEMAS
 
-# --- ESTRUCTURA DE DATOS BASE ---
-# @dataclass para almacenar de forma inmutable la información esencial de las empresas.
-# Solo cargamos los campos estrictamente necesarios para crear las relaciones.
-@dataclass(frozen=True)
-class CompanyRecord:
-    company_id: str             # ID único de la empresa
-    node_role: str              # Rol en la red (SUPPLIER, BUYER o HYBRID)
-    baseline_revenue: float     # Ingresos (usados para ponderar la probabilidad de tener más conexiones)
-    created_at: date            # Fecha de creación (para asegurar que la relación es posterior)
-
-# --- CONFIGURACIÓN DE NEGOCIO PARA CONTRATOS ---
+# =============================================================================
+# CABECERA (Configuración y Modelos)
+# =============================================================================
 CONTRACT_TYPES = ["FRAME", "SPOT", "ANNUAL", "MULTIYEAR"]
 PAYMENT_TERMS = [15, 30, 45, 60, 90]
 PAYMENT_TERMS_WEIGHTS = [0.05, 0.45, 0.25, 0.20, 0.05]
+SIMULATION_TODAY = date(2026, 1, 1)  # Reemplaza con date.today()
 
 
-def _to_float(value: str | None, default: float = 0.0) -> float:
-    """
-    Función auxiliar para conversión de strings a float de forma segura.
-    Maneja nulos, strings vacíos y errores de casteo, devolviendo un valor por defecto.
-    """
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
+def _pick(row: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 
+# @dataclass para almacenar de forma inmutable la información esencial de las empresas.
+@dataclass(frozen=True)
+class CompanyRecord:
+    company_id: str             
+    node_role: str              
+    region: str
+    industry_code: str
+    size_band: str
+    baseline_revenue: float     
+    created_at: date
+
+
+# =============================================================================
+# INTERFAZ PÚBLICA (CLI)
+# =============================================================================
+def get_supplies_parser() -> argparse.ArgumentParser:
+    """Contiene solo los argumentos exclusivos de este módulo."""
+    parser = argparse.ArgumentParser(add_help=False)
+    # Creamos un grupo visual
+    group = parser.add_argument_group("Opciones de rel_supplies.csv")
+    group.add_argument("--avg-degree-supplies", type=int, default=7, help="Grado medio de salida por proveedor", metavar="N")
+    return parser
+
+
+# =============================================================================
+# FUNCIÓN PRINCIPAL (MAIN)
+# =============================================================================
+def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_degree: int, mu: float, seed: int) -> Path:
+    """Orquesta la generación de relaciones comerciales respetando la topología LFR y las escribe en un CSV."""
+    if avg_out_degree <= 0: raise ValueError("avg_out_degree debe ser > 0")
+    if not (0.0 <= mu <= 1.0): raise ValueError("El parámetro de mezcla 'mu' debe estar entre 0.0 y 1.0")
+
+    rng = random.Random(seed)
+    companies = load_companies(companies_csv)
+    
+    # Generación matemática de la topología del grafo
+    edges = _generate_topology_edges(companies, avg_out_degree, mu, rng)
+    
+    # Generación de los atributos de negocio y escritura a disco
+    _write_supplies_to_csv(output_file, edges, companies, rng)
+
+    return output_file
+
+
+# =============================================================================
+# LÓGICA DE ALTO NIVEL (FUNCIONES AUXILIARES PARA LA FUNCIÓN PRINCIPAL)
+# =============================================================================
 def load_companies(companies_csv: Path) -> list[CompanyRecord]:
-    """
-    Carga del listado de empresas generadas previamente en companies.csv.
-    Parsea fechas, normaliza roles y maneja posibles errores en los datos fuente.
-    """
+    """Carga del listado de empresas generadas previamente en companies.csv."""
     if not companies_csv.exists():
         raise FileNotFoundError(f"No existe el fichero de companies: {companies_csv}")
 
@@ -50,26 +85,24 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
         reader = csv.DictReader(csv_file)
         # Extraemos solo los campos del .csv
         for row in reader:
-            company_id = (row.get("company_id") or "").strip()
-            node_role = (row.get("node_role") or "").strip().upper()
-            raw_date = row.get("created_at")
+            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
+            node_role = (_pick(row, "node_role:string", "node_role") or "").strip().upper()
+            company_created_at = _parse_created_at(_pick(row, "created_at:datetime", "created_at"))
+            
             if not company_id:
                 continue
             if node_role not in {"SUPPLIER", "BUYER", "HYBRID"}:
                 node_role = "HYBRID"
-            if raw_date and raw_date.strip():
-                try:
-                    company_created_at = date.fromisoformat(raw_date.strip())
-                except ValueError:
-                    company_created_at = date.today() - timedelta(days=365 * 5)
-            else:
-                company_created_at = date.today() - timedelta(days=365 * 5)
+            
             # Creacion del objeto inmutable
             companies.append(
                 CompanyRecord(
                     company_id=company_id,
                     node_role=node_role,
-                    baseline_revenue=max(_to_float(row.get("baseline_revenue"), 1.0), 1.0),
+                    region=(_pick(row, "region:string", "region") or "").strip() or "UNKNOWN",
+                    industry_code=(_pick(row, "industry_code:string", "industry_code") or "").strip() or "UNKNOWN",
+                    size_band=(_pick(row, "size_band:string", "size_band") or "").strip() or "micro",
+                    baseline_revenue=max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 1.0), 1.0),
                     created_at=company_created_at,
                 )
             )
@@ -80,163 +113,263 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
     return companies
 
 
-def _random_since_date(rng: random.Random, start_date: date) -> str:
-    """
-    Generación de fecha inicio de relación comercial lógica.
-    Garantiza que la relación comienza siempre en una fecha posterior 
-    a la creación de las empresas involucradas (start_date) y antes de hoy.
-    """
-    today = date.today()
-    if start_date >= today:
-        return today.isoformat()
-        
-    offset = rng.randint(0, (today - start_date).days)
-    return (today - timedelta(days=offset)).isoformat()
-
-
-def synthesize_rel_supplies_csv(output_file: Path, companies_csv: Path, avg_out_degree: int, seed: int,) -> Path:
-    """
-    Generador de fecha de inicio de relación comercial lógica.
-    Garantiza que la relación comienza en una fecha posterior 
-    a la creación de las empresas involucradas (start_date) y antes de hoy.
-    """
-    if avg_out_degree <= 0:
-        raise ValueError("avg_out_degree debe ser > 0")
-
-    rng = random.Random(seed)
-    companies = load_companies(companies_csv)
-    companies_dict = {c.company_id: c for c in companies}   # Diccionario para acceso rápido a datos de empresas por ID
-
-    # Listas de proveedores y compradores, filtrando por rol.
-    suppliers = [company for company in companies if company.node_role in {"SUPPLIER", "HYBRID"}] 
-    buyers = [company for company in companies if company.node_role in {"BUYER", "HYBRID"}]
-
-    if not suppliers:
-        raise ValueError("No hay empresas con rol SUPPLIER/HYBRID en companies.csv")
-    if not buyers:
-        raise ValueError("No hay empresas con rol BUYER/HYBRID en companies.csv")
+def _generate_topology_edges(companies: list[CompanyRecord], avg_out_degree: int, mu: float, rng: random.Random) -> set[tuple[str, str]]:
+    """Calcula las conexiones del grafo usando Scale-Free adaptado a comunidades LFR."""
     
-    # Calculamos el número de relaciones a generar, basado en el número de empresas y el grado medio deseado.
-    target_edges = max(len(companies), len(suppliers) * avg_out_degree)
+    # Preparación de estructuras y cálculos base
+    community_buckets, suppliers, buyers, community_keys = _build_community_structures(companies)
+    target_edges, max_possible_edges = _calculate_edge_targets(len(companies), len(suppliers), len(buyers), avg_out_degree)
+    pool_cum_weights, comm_supplier_cum_weights, comm_buyer_cum_weights = _precalculate_community_weights(community_buckets, community_keys)
 
-    # Inicializamos estructuras para seguimiento de grados de salida/entrada y las aristas generadas.
-    out_degree: dict[str, int] = {company.company_id: 0 for company in suppliers}
-    in_degree: dict[str, int] = {company.company_id: 0 for company in buyers}
+    # Funciones Auxiliares para selección eficiente de candidatos y comunidades 
+    def _pick_candidate(key: tuple[str, str], role: str) -> CompanyRecord:
+        """Selecciona un candidato en O(log N) usando búsqueda binaria."""
+        pool = community_buckets[key][role]
+        cum_weights = pool_cum_weights[(key, role)]
+        # Fíjate que cambiamos 'weights=' por 'cum_weights='
+        return rng.choices(pool, cum_weights=cum_weights, k=1)[0]
+
+    def _pick_community(role: str) -> tuple[str, str]:
+        """Selecciona una comunidad en O(log C)."""
+        cum_w = comm_supplier_cum_weights if role == "suppliers" else comm_buyer_cum_weights
+        return rng.choices(community_keys, cum_weights=cum_w, k=1)[0]
+
+    # Generación de Aristas (Bucle principal)
     edges: set[tuple[str, str]] = set()
-    
-    # --- OPTIMIZACIÓN DE PESOS PARA SELECCIÓN DE EMPRESAS ---
-    # Calculo de pesos base para cada empresa, que se actualizan solo cuando esa empresa participa en una nueva relación.
-    supplier_base_weights = {
-        c.company_id: 1.0 + (c.baseline_revenue / 100_000_000.0) 
-        for c in suppliers
-    }
-    buyer_base_weights = {
-        c.company_id: 1.0 + (c.baseline_revenue / 100_000_000.0) 
-        for c in buyers
-    }
-    
-    # Lista de pesos actualizados para cada empresa,
-    supplier_weights = [supplier_base_weights[c.company_id] for c in suppliers]
-    buyer_weights = [buyer_base_weights[c.company_id] for c in buyers]
-
-    # Diccionario con índices para acceso rápido a los pesos de cada empresa
-    supplier_idx = {c.company_id: i for i, c in enumerate(suppliers)}
-    buyer_idx = {c.company_id: i for i, c in enumerate(buyers)}
-
-    # Max_attempts para evitar loops infinitos en caso de que no se puedan generar más relaciones válidas.
-    max_attempts = target_edges * 20
+    max_attempts = min(target_edges * 20, 1_000_000)
     attempts = 0
+    
     while len(edges) < target_edges and attempts < max_attempts:
         attempts += 1
+        
+        # Mezcla LFR (Intra-comunidad vs Inter-comunidad)
+        if rng.random() > mu:
+            # Seleccion de supplier y buyer de Intra-comunidad.
+            community_key = _pick_community("buyers") 
+            supplier = _pick_candidate(community_key, "suppliers")
+            buyer = _pick_candidate(community_key, "buyers")
+        else:
+            supplier_community = _pick_community("suppliers")
+            buyer_community = _pick_community("buyers")
+            
+            # Forzamos inter-comunidad si coinciden por azar
+            if buyer_community == supplier_community and len(community_keys) > 1:
+                alternative = [key for key in community_keys if key != supplier_community]
+                buyer_community = rng.choice(alternative)
+                
+            supplier = _pick_candidate(supplier_community, "suppliers")
+            buyer = _pick_candidate(buyer_community, "buyers")
 
-        # Selección de proveedor y comprador usando pesos
-        supplier = rng.choices(suppliers, weights=supplier_weights, k=1)[0]
-        buyer = rng.choices(buyers, weights=buyer_weights, k=1)[0]
-
-        # Validaciones para asegurar relaciones lógicas         
+        # Validación e inserción
         if supplier.company_id == buyer.company_id:
             continue
         
-        # Creacion de tupla de arista para ver si ya existe
         edge = (supplier.company_id, buyer.company_id)
-        if edge in edges:
-            continue
-        
-        # Actualizacion de estructuras de seguimiento
-        edges.add(edge)
-        out_degree[supplier.company_id] += 1
-        in_degree[buyer.company_id] += 1
-        
-        # Obtención de índices para actualización de pesos finales
-        s_idx = supplier_idx[supplier.company_id]
-        supplier_weights[s_idx] += supplier_base_weights[supplier.company_id]
-        
-        b_idx = buyer_idx[buyer.company_id]
-        buyer_weights[b_idx] += buyer_base_weights[buyer.company_id]
+        if edge not in edges:
+            edges.add(edge)
+            
+    # Verificación final
+    if len(edges) < target_edges:
+        achievement_ratio = (len(edges) / target_edges * 100) if target_edges > 0 else 0
+        logging.warning(f"[Graph Saturation] Solo se alcanzaron {len(edges)}/{target_edges} aristas ({achievement_ratio:.1f}%). Máximo posible: {max_possible_edges}.")
 
-    # Definición de las columnas que tendrá nuestro CSV de salida
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [
-        "supplier_company_id", "buyer_company_id", "since_date",
-        "lead_time_days", "reliability_score", "agreed_volume_baseline",
-        "is_exclusive_supplier", "payment_terms_agreed", "contract_type",
+    return edges
+
+
+def _build_community_structures(companies: list[CompanyRecord]) -> tuple[dict, list, list, list]:
+    """Agrupa las empresas en comunidades latentes y devuelve las estructuras necesarias."""
+    community_buckets: dict[tuple[str, str], dict[str, list[CompanyRecord]]] = {}
+    total_list_suppliers: list[CompanyRecord] = []
+    total_list_buyers: list[CompanyRecord] = []
+    
+    # Clasificacion de empresas por rol y atributos de comunidad latente (región e industria)
+    for company in companies:
+        role_is_supplier = company.node_role in {"SUPPLIER", "HYBRID"}
+        role_is_buyer = company.node_role in {"BUYER", "HYBRID"}
+
+        if role_is_supplier:
+            total_list_suppliers.append(company)
+        if role_is_buyer:
+            total_list_buyers.append(company)
+
+        # Atributos de comunidad latente: región e industria. 
+        keys = [
+            ("region", company.region),
+            ("industry", company.industry_code),
+        ]
+        
+        for key in keys:
+            bucket = community_buckets.setdefault(key, {"suppliers": [], "buyers": []})
+            if role_is_supplier:
+                bucket["suppliers"].append(company)
+            if role_is_buyer:
+                bucket["buyers"].append(company)
+
+    if not total_list_suppliers or not total_list_buyers:
+        raise ValueError("No hay suficientes empresas con roles válidos para generar relaciones.")
+
+    # Filtrado de comunidades válidas (con al menos un proveedor y un comprador)
+    def _is_valid_bucket(bucket: dict[str, list[CompanyRecord]]) -> bool:
+        supplier_ids = {c.company_id for c in bucket["suppliers"]}
+        buyer_ids = {c.company_id for c in bucket["buyers"]}
+        
+        if not supplier_ids or not buyer_ids:
+            return False
+            
+        # Si hay un único proveedor y un único comprador y SON EL MISMO, es inválido (bucle). En caso contrario, es válido.
+        if len(supplier_ids) == 1 and len(buyer_ids) == 1 and supplier_ids == buyer_ids:
+            return False
+            
+        return True
+
+    # Solo almacenamos las claves de las comunidades que son validas para la generación de relaciones.
+    community_keys = [
+        key for key, bucket in community_buckets.items() if _is_valid_bucket(bucket)
+    ]
+    if not community_keys:
+        raise ValueError("No hay comunidades válidas para generar relaciones SUPPLIES")
+
+    return community_buckets, total_list_suppliers, total_list_buyers, community_keys
+
+
+def _calculate_edge_targets(total_companies: int, total_suppliers: int, total_buyers: int, avg_out_degree: int) -> tuple[int, int]:
+    """Calcula el número objetivo de aristas y el máximo matemático posible, previniendo saturación."""
+    max_possible_edges = total_suppliers * total_buyers
+    
+    if max_possible_edges == 0:
+        raise ValueError("No hay suficientes proveedores o compradores para generar aristas (necesitas mínimo 1 de cada rol)")
+    
+    target_edges = max(total_companies, total_suppliers * avg_out_degree)
+    
+    if target_edges > max_possible_edges:
+        target_edges = max_possible_edges
+        saturation_ratio = (total_suppliers * avg_out_degree) / max_possible_edges
+        logging.warning(f"[Graph Saturation] El grado medio solicitado es inalcanzable ({saturation_ratio*100:.1f}%). Limitando target a {target_edges}.")
+        
+    return target_edges, max_possible_edges
+
+
+def _precalculate_community_weights(community_buckets: dict, community_keys: list) -> tuple[dict, list[float], list[float]]:
+    """Precalcula los pesos ACUMULADOS para selección eficiente O(log N)."""
+    pool_cum_weights = {}
+    
+    for key, bucket in community_buckets.items():
+        # Calculamos pesos base
+        supplier_weights = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["suppliers"]]
+        buyer_weights = [max(1.0, math.sqrt(c.baseline_revenue)) for c in bucket["buyers"]]
+        
+        # Acumulamos los pesos (solo una vez por comunidad)
+        pool_cum_weights[(key, "suppliers")] = list(itertools.accumulate(supplier_weights))
+        pool_cum_weights[(key, "buyers")] = list(itertools.accumulate(buyer_weights))
+
+    # Para las comunidades, el peso total de la comunidad es el último valor de su lista acumulada
+    comm_supplier_weights = [
+        pool_cum_weights[(key, "suppliers")][-1] if pool_cum_weights[(key, "suppliers")] else 0 
+        for key in community_keys
+    ]
+    comm_buyer_weights = [
+        pool_cum_weights[(key, "buyers")][-1] if pool_cum_weights[(key, "buyers")] else 0 
+        for key in community_keys
     ]
 
-    # Creación y escritura del CSV
+    # Acumulamos también los pesos de selección de comunidad
+    comm_supplier_cum_weights = list(itertools.accumulate(comm_supplier_weights))
+    comm_buyer_cum_weights = list(itertools.accumulate(comm_buyer_weights))
+
+    return pool_cum_weights, comm_supplier_cum_weights, comm_buyer_cum_weights
+
+
+def _write_supplies_to_csv(output_file: Path, edges: set[tuple[str, str]], companies: list[CompanyRecord], rng: random.Random) -> None:
+    """Enriquece las aristas con atributos comerciales basados en lógica de negocio real."""
+    companies_dict = {c.company_id: c for c in companies}
+    
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = CSV_SCHEMAS["rel_supplies.csv"]
+
     with output_file.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
 
-        # Iteración por cada relación generada
         for supplier_id, buyer_id in sorted(edges):
-            
             supplier_obj = companies_dict[supplier_id]
             buyer_obj = companies_dict[buyer_id]
-        
-            earliest_possible_date = max(supplier_obj.created_at, buyer_obj.created_at)
             
-            reliability = round(rng.uniform(0.82, 0.995), 4)
-            writer.writerow(
-                {
-                    "supplier_company_id": supplier_id,                                                         # ID del proveedor
-                    "buyer_company_id": buyer_id,                                                               # ID del comprador
-                    "since_date": _random_since_date(rng, earliest_possible_date),                              # Fecha de inicio de la relación
-                    "lead_time_days": rng.randint(2, 45),                                                       # Tiempo de entrega en días
-                    "reliability_score": reliability,                                                           # Puntuación de confiabilidad del proveedor
-                    "agreed_volume_baseline": round(rng.uniform(1_000, 250_000), 2),                            # Volumen acordado en la relación
-                    "is_exclusive_supplier": rng.choices([True, False], weights=[0.12, 0.88], k=1)[0],          # Flag ser un proveedor exclusivo
-                    "payment_terms_agreed": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],  # Pago a X días fecha factura (Neto X)
-                    "contract_type": rng.choice(CONTRACT_TYPES),                                                # Tipo de contrato
-                }
-            )
+            # Logica de generación de atributos basada en características de las empresas y su relación temporal
+            earliest_possible_date = max(supplier_obj.created_at, buyer_obj.created_at)
+        
+            contract_type = rng.choice(CONTRACT_TYPES)
+            
+            # El volumen acordado no puede superar el 15% de la facturación del menor de los dos por realismo.
+            min_revenue_in_edge = min(supplier_obj.baseline_revenue, buyer_obj.baseline_revenue)
+            max_logical_volume = min_revenue_in_edge * 0.15 
+            agreed_volume = round(rng.uniform(0.01, 1.0) * max_logical_volume, 2)
+            
+            # El tiempo de entrega se ajusta según la industria y la proximidad geográfica, con excepciones para servicios digitales.
+            if supplier_obj.industry_code in {"J62", "M71"}:
+                lead_time = 0 # Servicios digitales/consultoría
+            elif supplier_obj.region == buyer_obj.region:
+                lead_time = rng.randint(1, 4)  # Misma Provincia
+            else:
+                lead_time = rng.randint(3, 10) # Tránsito Nacional
+            
+            # La fiabilidad se correlaciona con el tamaño de la empresa.    
+            if supplier_obj.size_band in {"enterprise", "mid"}:
+                reliability = round(rng.uniform(0.94, 0.999), 4) 
+            else:
+                reliability = round(rng.uniform(0.80, 0.96), 4)
+            
+            # La exclusividad es más probable en contratos FRAME o MULTIYEAR y cuando el proveedor no es más pequeño que el comprador.    
+            is_exclusive = False
+            if contract_type in {"FRAME", "MULTIYEAR"} and rng.random() > 0.85:
+                # Un proveedor no puede ser exclusivo de un comprador si el comprador factura 100 veces más.
+                if supplier_obj.baseline_revenue >= (buyer_obj.baseline_revenue * 0.10):
+                    is_exclusive = True
 
-    return output_file
+            writer.writerow({
+                ":START_ID(Company)": supplier_id,
+                ":END_ID(Company)": buyer_id,
+                "since_date:datetime": _random_since_date(rng, earliest_possible_date),
+                "lead_time_days:int": lead_time,
+                "reliability_score:float": reliability,
+                "agreed_volume_baseline:float": max(agreed_volume, 500.0),
+                "is_exclusive_supplier:boolean": is_exclusive,
+                "payment_terms_agreed:int": rng.choices(PAYMENT_TERMS, weights=PAYMENT_TERMS_WEIGHTS, k=1)[0],
+                "contract_type:string": contract_type,
+                ":TYPE": "SUPPLIES",
+            })
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Configuracion de la línea de comandos para poder pasarle parámetros al ejecutar el script."""
-    parser = argparse.ArgumentParser(description="Generador sintético para rel_supplies.csv")
-    parser.add_argument("--companies", type=str, default="data/synthetic/companies.csv", help="Ruta del CSV companies.csv",)
-    parser.add_argument("--output", type=str, default="data/synthetic/rel_supplies.csv", help="Ruta de salida de rel_supplies.csv",)
-    parser.add_argument("--avg-out-degree", type=int, default=3, help="Grado medio de salida por proveedor",)
-    parser.add_argument("--seed", type=int, default=42, help="Semilla reproducible")
-    return parser
+# =============================================================================
+# FUNCIONES AUXILIARES (Helpers / Utils)
+# =============================================================================
+
+def _parse_created_at(raw_date: str | None) -> date:
+    """Parsea la fecha de creación de la empresa desde el CSV."""
+    if raw_date and raw_date.strip():
+        value = raw_date.strip().replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            pass
+            
+    # Fallback de seguridad con 5 años de antigüedad
+    return SIMULATION_TODAY - timedelta(days=365 * 5)
 
 
-def main() -> None:
-    """Punto de entrada del programa."""
-    # Lectura de argumentos desde la línea de comandos
-    args = build_parser().parse_args()
-    
-    # Llamada a la función principal para generación del CSV de rel_supplies
-    result = synthesize_rel_supplies_csv(
-        output_file=Path(args.output),
-        companies_csv=Path(args.companies),
-        avg_out_degree=args.avg_out_degree,
-        seed=args.seed,
-    )
-    print(f"[OK] rel_supplies sintetizado -> {result}")
+def _random_since_date(rng: random.Random, start_date: date) -> str:
+    """Generación de fecha inicio de relación comercial lógica."""
+    if start_date >= SIMULATION_TODAY:
+        return SIMULATION_TODAY.isoformat()
+        
+    offset = rng.randint(0, (SIMULATION_TODAY - start_date).days)
+    return (SIMULATION_TODAY - timedelta(days=offset)).isoformat()
 
 
-if __name__ == "__main__":
-    main()
+def _safe_float(val: str | None, default: float = 1.0) -> float:
+    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
+    if not val:
+        return default
+    try:
+        return float(str(val).strip().replace(",", "."))
+    except ValueError:
+        return default

@@ -17,7 +17,6 @@ class Settings:
 	neo4j_password: str
 	neo4j_database: str
 	seed: int
-	batch_size: int
 
 	def ensure_data_directories(self) -> None:
 		self.data_raw_dir.mkdir(parents=True, exist_ok=True)
@@ -50,9 +49,8 @@ def load_settings() -> Settings:
 		data_export_dir=data_export_dir,
 		neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
 		neo4j_user=os.getenv("NEO4J_USER", "neo4j"),
-		neo4j_password=os.getenv("NEO4J_PASSWORD", "neo4j"),
+		neo4j_password=os.getenv("NEO4J_PASSWORD", "AdminUser1234"),
 		neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j"),
-		seed=_as_int(os.getenv("TFG_SEED"), 42),
-		batch_size=_as_int(os.getenv("TFG_BATCH_SIZE"), 10_000),
+		seed=_as_int(os.getenv("TFG_SEED"), None),
 	)
 
