@@ -133,6 +133,7 @@ class Neo4jBulkLoader:
             CREATE (doc)-[:SENT_TO]->(buyer)
 
             // Creacion de conexion con TIME_BUCKET
+            WITH doc, row
             CALL (doc, row) {
                 WITH doc, row WHERE coalesce(row.issue_date, "") <> ""
                 WITH doc, date(row.issue_date) AS dDate
@@ -141,7 +142,6 @@ class Neo4jBulkLoader:
                 MERGE (doc)-[:Issue_on]->(tb)
             }
 
-            // TRAZABILIDAD DOCUMENTAL (FULFILLS)
             // TRAZABILIDAD DOCUMENTAL (FULFILLS)
             WITH doc, row
             CALL (doc, row) {
@@ -274,10 +274,31 @@ class Neo4jBulkLoader:
     def _write_batch(tx: Any, query: str, rows: list[dict[str, str | None]]) -> None:
         tx.run(query, rows=rows).consume()
 
+    @staticmethod
+    def _clean_key(key: str) -> str:
+        """Limpia los sufijos de Neo4j admin (ej. 'company_id:ID(Company)' -> 'company_id')"""
+        if not key: return ""
+        
+        # Mapeos explícitos para las aristas según los templates
+        if key == ":START_ID(Company)": return "supplier_company_id"
+        if key == ":END_ID(Company)": return "buyer_company_id"
+        if key == ":START_ID(Document)": return "document_id"
+        if key == ":END_ID(Product)": return "product_id"
+        if key == ":TYPE": return "type"
+        
+        # Quitar todo lo que va después de los dos puntos (ej. legal_name:string -> legal_name)
+        return key.split(":")[0]
+
     def _iter_csv_batches(self, file_path: Path) -> Iterator[list[dict[str, str | None]]]:
         batch: list[dict[str, str | None]] = []
         with file_path.open("r", encoding="utf-8", newline="") as csv_file:
             reader = csv.DictReader(csv_file)
+            
+            # Limpiar y mapear las cabeceras sobre la marcha
+            if reader.fieldnames:
+                clean_fieldnames = [self._clean_key(f) for f in reader.fieldnames]
+                reader.fieldnames = clean_fieldnames
+                
             for row in reader:
                 # Si está vacío, enviamos None para que Neo4j reciba un 'null' real
                 normalized = {key: (value.strip() if value and value.strip() else None) for key, value in row.items()}
