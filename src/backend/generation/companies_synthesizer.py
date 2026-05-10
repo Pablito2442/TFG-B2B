@@ -1,15 +1,17 @@
 from __future__ import annotations
 import argparse
 import csv
+import logging
 import random
 from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
 from faker import Faker
 from src.backend.generation.csv_templates import CSV_SCHEMAS
+from src.backend.utils import safe_float, safe_int
 
 # =============================================================================
-# CABECERA (Configuración y Modelos)
+#  CABECERA (Configuración y Modelos)
 # =============================================================================
 INDUSTRY_CODES = ["C10","C13", "C20", "C22", "C25", "C26", 
                   "C28", "C29", "G46", "H52", "J62", "M71"] # Estándar NACE Rev. 2
@@ -40,7 +42,7 @@ class LFRProfile:
 
 
 # =============================================================================
-# INTERFAZ PÚBLICA (CLI)
+#  INTERFAZ PÚBLICA (CLI)
 # =============================================================================
 def get_companies_parser() -> argparse.ArgumentParser:
     """Contiene solo los argumentos exclusivos de este módulo."""
@@ -58,17 +60,23 @@ def get_companies_parser() -> argparse.ArgumentParser:
 
 
 # =============================================================================
-# FUNCIÓN PRINCIPAL (MAIN)
+#  FUNCIÓN PRINCIPAL (MAIN)
 # =============================================================================
 def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, seed: int, 
                              gamma: float, beta: float, mu: float, min_comm: int, max_comm: int) -> Path:
     """Función principal que genera el archivo CSV final de empresas (companies.csv)."""
-    if rows <= 0: raise ValueError("El número de filas debe ser > 0")
-    if gamma <= 1.0: raise ValueError("gamma (distribución de grados) debe ser > 1.0")
-    if beta <= 1.0: raise ValueError("beta (distribución de comunidades) debe ser > 1.0")
-    if not (0 <= mu <= 1): raise ValueError("mu (mixing parameter) debe estar entre 0.0 y 1.0")
-    if min_comm <= 0: raise ValueError("min_community debe ser mayor que 0")
-    if min_comm > max_comm: raise ValueError("min_community no puede ser mayor que max_community")
+    if rows <= 0: 
+        logging.error("El número de filas solicitado es inválido (<= 0).")
+        raise ValueError("El número de filas debe ser > 0")
+    if gamma <= 1.0 or beta <= 1.0: 
+        logging.error("Los hiperparámetros topológicos Gamma y Beta deben ser estrictamente > 1.0")
+        raise ValueError("gamma y beta deben ser > 1.0")
+    if not (0 <= mu <= 1): 
+        logging.error("El mixing parameter (mu) está fuera del rango probabilístico [0, 1].")
+        raise ValueError("mu (mixing parameter) debe estar entre 0.0 y 1.0")
+    if min_comm <= 0 or min_comm > max_comm: 
+        logging.error("Incongruencia en los límites de tamaño de comunidad LFR.")
+        raise ValueError("Límites de comunidad inválidos.")
 
     # Inicializacion de motores aleatorios (estándar y el de Faker) con la semilla
     rng = random.Random(seed)
@@ -128,6 +136,7 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
             if attempts == max_attempts:
                 cif_candidate = f"ESX{index:07d}"
                 used_tax_ids.add(cif_candidate)
+                logging.warning(f"Colisión probabilística máxima alcanzada para Tax ID en {company_id}. Usando fallback determinista.")
                 
             record = {
                 "company_id:ID(Company)": company_id,
@@ -147,12 +156,13 @@ def synthesize_companies_csv(output_file: Path, cities_csv: Path, rows: int, see
                 "is_active:boolean": rng.choices([True, False], weights=[0.95, 0.05], k=1)[0],
             }
             writer.writerow(record)
-
+            
+    logging.info(f"Escritura completada: {rows} entidades Company exportadas a {output_file.name}")
     return output_file
 
 
 # =============================================================================
-# LÓGICA DE ALTO NIVEL (FUNCIONES AUXILIARES PARA SINTETIZAR EMPRESAS)
+#  LÓGICA DE ALTO NIVEL (FUNCIONES AUXILIARES PARA SINTETIZAR EMPRESAS)
 # =============================================================================
 def load_municipalities(csv_path: Path) -> tuple[list[MunicipalityPoint], list[int]]:
     """Carga el dataset geográfico de municipios extrayendo sus pesos poblacionales."""
@@ -169,13 +179,13 @@ def load_municipalities(csv_path: Path) -> tuple[list[MunicipalityPoint], list[i
             if not municipality or not province:
                 continue
             
-            pop = _safe_int(row.get("Habitantes"), 50_000)
+            pop = safe_int(row.get("Habitantes"), 50_000)
             
             mun = MunicipalityPoint(
                 province=province,
                 municipality=municipality,
-                lat=_safe_float(row.get("Latitud"), 0.0),
-                lon=_safe_float(row.get("Longitud"), 0.0),
+                lat=safe_float(row.get("Latitud"), 0.0),
+                lon=safe_float(row.get("Longitud"), 0.0),
                 population=pop
             )
             
@@ -183,6 +193,7 @@ def load_municipalities(csv_path: Path) -> tuple[list[MunicipalityPoint], list[i
             municipality_weights.append(pop)
                 
     if not municipalities:
+        logging.error("Fallo estructural: El archivo de municipios base está vacío o corrupto.")
         raise ValueError("No se encontraron municipios válidos en el dataset proporcionado.")
         
     return municipalities, municipality_weights
@@ -226,7 +237,7 @@ def _build_lfr_profiles(rows: int, municipalities: list[MunicipalityPoint], muni
 
 
 # =============================================================================
-# FUNCIONES AUXILIARES (Helpers / Utils)
+#  FUNCIONES AUXILIARES (Helpers / Utils)
 # =============================================================================
 def _size_band_from_lfr(degree_propensity: float, rng: random.Random) -> str:
     """Sesga la categoría de size_band según la jerarquía de grado del nodo en la red."""
@@ -309,24 +320,3 @@ def _sample_mixing_mu(mu: float, rng: random.Random) -> float:
     # Distribución beta para sesgar con varianza controlada alrededor de LFR_MIXING_MU
     return round(max(0.05, min(rng.betavariate(a, b), 0.95)), 3)
     # Visualizacion aqui: https://www.wolframalpha.com/input?i=PDF+of+BetaDistribution%5B5.4%2C+12.6%5D+from+0+to+1&lang=es
-
-
-def _safe_float(val: str | None, default: float = 0.0) -> float:
-    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
-    if not val:
-        return default
-    try:
-        return float(str(val).strip().replace(",", "."))
-    except ValueError:
-        return default
-
-
-def _safe_int(val: str | None, default: int = 50_000) -> int:
-    """Convierte un valor a int de forma segura, con manejo de comas, puntos y valores faltantes."""
-    if not val:
-        return default
-    try:
-        cleaned_val = str(val).strip().replace(".", "").replace(",", ".")
-        return int(float(cleaned_val))
-    except ValueError:
-        return default

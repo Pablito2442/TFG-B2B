@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import logging         
 from src.backend.generation.csv_templates import CSV_SCHEMAS
+from src.backend.utils import safe_float, pick
 
 # =============================================================================
 # CABECERA (Configuración y Modelos)
@@ -18,13 +19,6 @@ CONTRACT_TYPES = ["FRAME", "SPOT", "ANNUAL", "MULTIYEAR"]
 PAYMENT_TERMS = [15, 30, 45, 60, 90]
 PAYMENT_TERMS_WEIGHTS = [0.05, 0.45, 0.25, 0.20, 0.05]
 SIMULATION_TODAY = date(2026, 1, 1)  # Reemplaza con date.today()
-
-
-def _pick(row: dict[str, str], *keys: str) -> str | None:
-    for key in keys:
-        if key in row and row[key] is not None:
-            return row[key]
-    return None
 
 
 # @dataclass para almacenar de forma inmutable la información esencial de las empresas.
@@ -85,9 +79,9 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
         reader = csv.DictReader(csv_file)
         # Extraemos solo los campos del .csv
         for row in reader:
-            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
-            node_role = (_pick(row, "node_role:string", "node_role") or "").strip().upper()
-            company_created_at = _parse_created_at(_pick(row, "created_at:datetime", "created_at"))
+            company_id = (pick(row, "company_id:ID(Company)", "company_id") or "").strip()
+            node_role = (pick(row, "node_role:string", "node_role") or "").strip().upper()
+            company_created_at = _parse_created_at(pick(row, "created_at:datetime", "created_at"))
             
             if not company_id:
                 continue
@@ -99,10 +93,10 @@ def load_companies(companies_csv: Path) -> list[CompanyRecord]:
                 CompanyRecord(
                     company_id=company_id,
                     node_role=node_role,
-                    region=(_pick(row, "region:string", "region") or "").strip() or "UNKNOWN",
-                    industry_code=(_pick(row, "industry_code:string", "industry_code") or "").strip() or "UNKNOWN",
-                    size_band=(_pick(row, "size_band:string", "size_band") or "").strip() or "micro",
-                    baseline_revenue=max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 1.0), 1.0),
+                    region=(pick(row, "region:string", "region") or "").strip() or "UNKNOWN",
+                    industry_code=(pick(row, "industry_code:string", "industry_code") or "").strip() or "UNKNOWN",
+                    size_band=(pick(row, "size_band:string", "size_band") or "").strip() or "micro",
+                    baseline_revenue=max(safe_float(pick(row, "baseline_revenue:float", "baseline_revenue"), 1.0), 1.0),
                     created_at=company_created_at,
                 )
             )
@@ -122,14 +116,14 @@ def _generate_topology_edges(companies: list[CompanyRecord], avg_out_degree: int
     pool_cum_weights, comm_supplier_cum_weights, comm_buyer_cum_weights = _precalculate_community_weights(community_buckets, community_keys)
 
     # Funciones Auxiliares para selección eficiente de candidatos y comunidades 
-    def _pick_candidate(key: tuple[str, str], role: str) -> CompanyRecord:
+    def pick_candidate(key: tuple[str, str], role: str) -> CompanyRecord:
         """Selecciona un candidato en O(log N) usando búsqueda binaria."""
         pool = community_buckets[key][role]
         cum_weights = pool_cum_weights[(key, role)]
         # Fíjate que cambiamos 'weights=' por 'cum_weights='
         return rng.choices(pool, cum_weights=cum_weights, k=1)[0]
 
-    def _pick_community(role: str) -> tuple[str, str]:
+    def pick_community(role: str) -> tuple[str, str]:
         """Selecciona una comunidad en O(log C)."""
         cum_w = comm_supplier_cum_weights if role == "suppliers" else comm_buyer_cum_weights
         return rng.choices(community_keys, cum_weights=cum_w, k=1)[0]
@@ -145,20 +139,20 @@ def _generate_topology_edges(companies: list[CompanyRecord], avg_out_degree: int
         # Mezcla LFR (Intra-comunidad vs Inter-comunidad)
         if rng.random() > mu:
             # Seleccion de supplier y buyer de Intra-comunidad.
-            community_key = _pick_community("buyers") 
-            supplier = _pick_candidate(community_key, "suppliers")
-            buyer = _pick_candidate(community_key, "buyers")
+            community_key = pick_community("buyers") 
+            supplier = pick_candidate(community_key, "suppliers")
+            buyer = pick_candidate(community_key, "buyers")
         else:
-            supplier_community = _pick_community("suppliers")
-            buyer_community = _pick_community("buyers")
+            supplier_community = pick_community("suppliers")
+            buyer_community = pick_community("buyers")
             
             # Forzamos inter-comunidad si coinciden por azar
             if buyer_community == supplier_community and len(community_keys) > 1:
                 alternative = [key for key in community_keys if key != supplier_community]
                 buyer_community = rng.choice(alternative)
                 
-            supplier = _pick_candidate(supplier_community, "suppliers")
-            buyer = _pick_candidate(buyer_community, "buyers")
+            supplier = pick_candidate(supplier_community, "suppliers")
+            buyer = pick_candidate(buyer_community, "buyers")
 
         # Validación e inserción
         if supplier.company_id == buyer.company_id:
@@ -363,13 +357,3 @@ def _random_since_date(rng: random.Random, start_date: date) -> str:
         
     offset = rng.randint(0, (SIMULATION_TODAY - start_date).days)
     return (SIMULATION_TODAY - timedelta(days=offset)).isoformat()
-
-
-def _safe_float(val: str | None, default: float = 1.0) -> float:
-    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
-    if not val:
-        return default
-    try:
-        return float(str(val).strip().replace(",", "."))
-    except ValueError:
-        return default
