@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import typing
 from src.backend.generation.csv_templates import CSV_SCHEMAS
+from src.backend.utils import safe_float, safe_int, safe_date, pick
 
 # =============================================================================
 # CABECERA (Configuracion y catalogo)
@@ -22,13 +23,6 @@ DOC_TYPE_LINE_STATUS = {
     "DESADV": "SHIPPED",
     "INVOICE": "BILLED",
 }
-
-
-def _pick(row: dict[str, str], *keys: str) -> str | None:
-    for key in keys:
-        if key in row and row[key] is not None:
-            return row[key]
-    return None
 
 
 @dataclass(frozen=True)
@@ -134,17 +128,17 @@ def _stream_document_chains(documents_csv: Path) -> typing.Iterator[tuple[Docume
     with documents_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            document_id = (_pick(row, "document_id:ID(Document)", "document_id") or "").strip()
+            document_id = (pick(row, "document_id:ID(Document)", "document_id") or "").strip()
             if not document_id:
                 continue
                 
             doc = DocumentRecord(
                 document_id=document_id,
-                doc_type=(_pick(row, "doc_type:string", "doc_type") or "ORDER").strip().upper(),
-                issue_date=_safe_date(_pick(row, "issue_date:datetime", "issue_date"), date(2026, 1, 1)),
-                gross_amount=max(_safe_float(_pick(row, "gross_amount:float", "gross_amount"), 0.0), 0.0),
-                supplier_company_id=(_pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip(),
-                reference_id=(_pick(row, "reference_id:string", "reference_id") or "").strip(),
+                doc_type=(pick(row, "doc_type:string", "doc_type") or "ORDER").strip().upper(),
+                issue_date=safe_date(pick(row, "issue_date:datetime", "issue_date"), date(2026, 1, 1)),
+                gross_amount=max(safe_float(pick(row, "gross_amount:float", "gross_amount"), 0.0), 0.0),
+                supplier_company_id=(pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip(),
+                reference_id=(pick(row, "reference_id:string", "reference_id") or "").strip(),
             )
 
             # Determinamos cuál es el "padre" de este documento
@@ -185,8 +179,8 @@ def _stream_document_chains(documents_csv: Path) -> typing.Iterator[tuple[Docume
 #                 DocumentRecord(
 #                     document_id=document_id,
 #                     doc_type=(row.get("doc_type") or "ORDER").strip().upper(),
-#                     issue_date=_safe_date(row.get("issue_date"), date(2026, 1, 1)),
-#                     gross_amount=max(_safe_float(row.get("gross_amount"), 0.0), 0.0),
+#                     issue_date=safe_date(row.get("issue_date"), date(2026, 1, 1)),
+#                     gross_amount=max(safe_float(row.get("gross_amount"), 0.0), 0.0),
 #                     supplier_company_id=(row.get("supplier_company_id") or "").strip(),
 #                     reference_id=(row.get("reference_id") or "").strip(),
 #                 )
@@ -204,18 +198,18 @@ def _load_products_by_supplier(products_csv: Path) -> dict[str, list[ProductReco
     with products_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            product_id = (_pick(row, "product_id:ID(Product)", "product_id") or "").strip()
-            supplier_company_id = (_pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip()
+            product_id = (pick(row, "product_id:ID(Product)", "product_id") or "").strip()
+            supplier_company_id = (pick(row, "supplier_company_id:string", "supplier_company_id") or "").strip()
             if not product_id or not supplier_company_id:
                 continue
             products_by_supplier.setdefault(supplier_company_id, []).append(
                 ProductRecord(
                     product_id=product_id,
                     supplier_company_id=supplier_company_id,
-                    base_price=max(_safe_float(_pick(row, "base_price:float", "base_price"), 1.0), 0.01),
-                    lead_time_baseline_days=max(_safe_int(_pick(row, "lead_time_baseline_days:int", "lead_time_baseline_days"), 1), 0),
-                    criticality=(_pick(row, "criticality:string", "criticality") or "MEDIUM").strip().upper(),
-                    unit=(_pick(row, "unit:string", "unit") or "unit").strip(),
+                    base_price=max(safe_float(pick(row, "base_price:float", "base_price"), 1.0), 0.01),
+                    lead_time_baseline_days=max(safe_int(pick(row, "lead_time_baseline_days:int", "lead_time_baseline_days"), 1), 0),
+                    criticality=(pick(row, "criticality:string", "criticality") or "MEDIUM").strip().upper(),
+                    unit=(pick(row, "unit:string", "unit") or "unit").strip(),
                 )
             )
 
@@ -322,33 +316,3 @@ def _allocate_amounts(total_amount: float, weights: list[float]) -> list[float]:
     diff = round(total_amount - sum(rounded), 2)
     rounded[-1] = round(max(0.01, rounded[-1] + diff), 2)
     return rounded
-
-
-def _safe_date(value: str | None, default: date) -> date:
-    """Convierte una cadena a fecha, manejando formatos ISO y valores vacíos."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
-    except ValueError:
-        return default
-
-
-def _safe_int(value: str | None, default: int) -> int:
-    """Convierte un valor a int de forma segura, con manejo de comas, puntos y valores faltantes."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return int(float(value))
-    except ValueError:
-        return default
-
-
-def _safe_float(value: str | None, default: float) -> float:
-    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(str(value).strip().replace(",", "."))
-    except ValueError:
-        return default

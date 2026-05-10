@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, UTC
 from pathlib import Path
 from src.backend.generation.csv_templates import CSV_SCHEMAS
+from src.backend.utils import safe_float, safe_int, safe_date, pick
 
 # =============================================================================
-# CABECERA (Configuración y Modelos)
+#  CABECERA (Configuración y Modelos)
 # =============================================================================
-
 SIMULATION_TODAY = date(2026, 1, 1)     # Reemplaza con date.today() en producción
 EDI_STANDARDS = ["EDIFACT", "ANSI_X12"]
 
@@ -27,13 +27,6 @@ INDUSTRY_TAX_RATES: dict[str, list[float]] = {
     "C25": [0.21], "C26": [0.21], "C28": [0.21], "C29": [0.21],
     "G46": [0.10, 0.21], "H52": [0.21], "J62": [0.21], "M71": [0.21],
 }
-
-
-def _pick(row: dict[str, str], *keys: str) -> str | None:
-    for key in keys:
-        if key in row and row[key] is not None:
-            return row[key]
-    return None
 
 @dataclass(frozen=True)
 class CompanyProfile:
@@ -55,7 +48,7 @@ class CompanyPair:
 
 
 # =============================================================================
-# INTERFAZ PÚBLICA (CLI)
+#  INTERFAZ PÚBLICA (CLI)
 # =============================================================================
 def get_documents_parser() -> argparse.ArgumentParser:
     """Contiene solo los argumentos exclusivos de este módulo."""
@@ -66,7 +59,7 @@ def get_documents_parser() -> argparse.ArgumentParser:
 
 
 # =============================================================================
-# FUNCIÓN ORQUESTADORA (MAIN)
+#  FUNCIÓN ORQUESTADORA (MAIN)
 # =============================================================================
 def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplies_csv: Path,
                              seed: int, avg_out_degree: int) -> Path:
@@ -107,7 +100,7 @@ def synthesize_documents_csv(output_file: Path, companies_csv: Path, rel_supplie
 
 
 # =============================================================================
-# LÓGICA DE ALTO NIVEL (Cargas y Generadores Complejos)
+#  LÓGICA DE ALTO NIVEL (Cargas y Generadores Complejos)
 # =============================================================================
 def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
     """Carga de perfiles de empresa desde companies.csv."""
@@ -118,14 +111,14 @@ def _load_company_profiles(companies_csv: Path) -> dict[str, CompanyProfile]:
     with companies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            company_id = (_pick(row, "company_id:ID(Company)", "company_id") or "").strip()
+            company_id = (pick(row, "company_id:ID(Company)", "company_id") or "").strip()
             if not company_id:
                 continue
             profiles[company_id] = CompanyProfile(
                 company_id=company_id,
-                country=(_pick(row, "country:string", "country") or "ES").strip().upper(),
-                industry_code=(_pick(row, "industry_code:string", "industry_code") or "G46").strip().upper(),
-                baseline_revenue=max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0),
+                country=(pick(row, "country:string", "country") or "ES").strip().upper(),
+                industry_code=(pick(row, "industry_code:string", "industry_code") or "G46").strip().upper(),
+                baseline_revenue=max(safe_float(pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0),
             )
     return profiles
 
@@ -140,20 +133,20 @@ def _load_pairs_from_supplies(rel_supplies_csv: Path) -> list[CompanyPair]:
     with rel_supplies_csv.open("r", encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            supplier = (_pick(row, ":START_ID(Company)", "supplier_company_id") or "").strip()
-            buyer = (_pick(row, ":END_ID(Company)", "buyer_company_id") or "").strip()
+            supplier = (pick(row, ":START_ID(Company)", "supplier_company_id") or "").strip()
+            buyer = (pick(row, ":END_ID(Company)", "buyer_company_id") or "").strip()
             if not supplier or not buyer or supplier == buyer:
                 continue
             pairs.append(
                 CompanyPair(
                     supplier_company_id=supplier,
                     buyer_company_id=buyer,
-                    lead_time_days=max(_safe_int(_pick(row, "lead_time_days:int", "lead_time_days"), 2), 0),
-                    reliability_score=min(max(_safe_float(_pick(row, "reliability_score:float", "reliability_score"), 0.9), 0.0), 1.0),
-                    agreed_volume_baseline=max(_safe_float(_pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 1_000.0), 100.0),
-                    contract_type=(_pick(row, "contract_type:string", "contract_type") or "FRAME").strip().upper(),
-                    payment_terms_days=max(_safe_int(_pick(row, "payment_terms_agreed:int", "payment_terms_agreed"), 30), 0),
-                    since_date=_safe_date(_pick(row, "since_date:datetime", "since_date"), fallback_since),
+                    lead_time_days=max(safe_int(pick(row, "lead_time_days:int", "lead_time_days"), 2), 0),
+                    reliability_score=min(max(safe_float(pick(row, "reliability_score:float", "reliability_score"), 0.9), 0.0), 1.0),
+                    agreed_volume_baseline=max(safe_float(pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 1_000.0), 100.0),
+                    contract_type=(pick(row, "contract_type:string", "contract_type") or "FRAME").strip().upper(),
+                    payment_terms_days=max(safe_int(pick(row, "payment_terms_agreed:int", "payment_terms_agreed"), 30), 0),
+                    since_date=safe_date(pick(row, "since_date:datetime", "since_date"), fallback_since),
                 )
             )
     return pairs
@@ -302,7 +295,7 @@ def _generate_triplet_records(base_seq: int, rng: random.Random, pair: CompanyPa
 
 
 # =============================================================================
-# 5. FUNCIONES AUXILIARES (Helpers / Utils)
+#  FUNCIONES AUXILIARES (Helpers / Utils)
 # =============================================================================
 
 def _determine_order_frequency(contract_type: str, rng: random.Random) -> int:
@@ -370,27 +363,3 @@ def _calculate_delay_days(reliability_score: float, rng: random.Random) -> int:
 def _tax_rate_for_industry(industry_code: str, rng: random.Random) -> float:
     rates = INDUSTRY_TAX_RATES.get(industry_code, [0.21])
     return rng.choice(rates)
-
-
-def _safe_date(value: str | None, default: date) -> date:
-    if value is None or value.strip() == "": return default
-    try:
-        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
-    except ValueError:
-        return default
-
-
-def _safe_int(value: str | None, default: int) -> int:
-    if value is None or value.strip() == "": return default
-    try:
-        return int(float(value))
-    except ValueError:
-        return default
-
-
-def _safe_float(value: str | None, default: float) -> float:
-    if value is None or value.strip() == "": return default
-    try:
-        return float(str(value).strip().replace(",", "."))
-    except ValueError:
-        return default

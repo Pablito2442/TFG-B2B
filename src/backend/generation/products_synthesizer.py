@@ -7,10 +7,11 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 from src.backend.generation.csv_templates import CSV_SCHEMAS
+from src.backend.utils import safe_float
 
-    # =============================================================================
-    # CABECERA (Configuracion y catalogo)
-    # =============================================================================
+# =============================================================================
+# CABECERA (Configuracion y catalogo)
+# =============================================================================
 PRODUCT_CATEGORIES: dict[str, dict[str, object]] = {
     "raw_materials": {
         "label": "Raw Materials",
@@ -244,7 +245,7 @@ def _load_supplier_profiles(companies_csv: Path, rel_supplies_csv: Path, rng: ra
                 continue
             
             industry_code = (_pick(row, "industry_code:string", "industry_code") or "").strip().upper()
-            baseline_revenue = max(_safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0)
+            baseline_revenue = max(safe_float(_pick(row, "baseline_revenue:float", "baseline_revenue"), 30_000.0), 30_000.0)
             companies[company_id] = (industry_code, baseline_revenue)
 
     stats: dict[str, dict[str, float]] = {} # supplier_company_id -> {out_degree, agreed_volume}
@@ -257,7 +258,7 @@ def _load_supplier_profiles(companies_csv: Path, rel_supplies_csv: Path, rng: ra
                 continue
             bucket = stats.setdefault(supplier_company_id, {"out_degree": 0.0, "agreed_volume": 0.0})
             bucket["out_degree"] += 1.0
-            bucket["agreed_volume"] += max(_safe_float(_pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 0.0), 0.0)
+            bucket["agreed_volume"] += max(safe_float(_pick(row, "agreed_volume_baseline:float", "agreed_volume_baseline"), 0.0), 0.0)
 
     suppliers: list[SupplierProfile] = []
     for supplier_company_id, values in stats.items():
@@ -388,15 +389,3 @@ def _is_substitutable(category_cfg: dict[str, object], criticality: str, rng: ra
         base_prob *= 1.10
     return rng.random() < min(max(base_prob, 0.0), 1.0)
 
-
-def _safe_float(value: str | None, default: float) -> float:
-    """Convierte un valor a float de forma segura, con manejo de comas y valores faltantes."""
-    if value is None:
-        return default
-    text = str(value).strip().replace(",", ".")
-    if not text:
-        return default
-    try:
-        return float(text)
-    except ValueError:
-        return default
