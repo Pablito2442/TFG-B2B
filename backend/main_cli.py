@@ -13,6 +13,7 @@ from backend.etl.generation.supplies_synthesizer import get_supplies_parser
 from backend.etl.runners.run_generate import run_generate
 from backend.etl.runners.run_load import run_load
 from backend.etl.runners.run_analyze import run_analyze
+from backend.etl.runners.run_seed import run_seed
 from backend.etl.runners.run_all import run_all
 
 # =========================================================================
@@ -71,7 +72,11 @@ def main() -> None:
     elif args.command == "analyze":
         artifact = run_analyze(settings)
         print(f"[OK] analyze -> {artifact}")
-        
+
+    elif args.command == "seed":
+        artifact = run_seed(settings)
+        print(f"[OK] seed -> {artifact}")
+
     else:
         artifacts = run_all(
             settings,
@@ -85,7 +90,8 @@ def main() -> None:
             min_comm=getattr(args, 'min_community'),
             max_comm=getattr(args, 'max_community'),
             batch_size_loader=getattr(args, 'batch_size_loader'),
-            clear_db=getattr(args, 'clear_db', False)
+            clear_db=getattr(args, 'clear_db', False),
+            skip_seed=getattr(args, 'skip_seed', False),
         )
         print("[OK] all")
         for artifact in artifacts:
@@ -165,6 +171,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser_all.add_argument("--seed", type=int, default=None, help="Semilla global", metavar="SEED")
     parser_all.add_argument("--batch_size_loader", type=int, default=10000, help="Filas por lote para Neo4j", metavar="N")
     parser_all.add_argument("--clear-db", action="store_true", help="Borra la base de datos antes de iniciar la carga masiva")
+    parser_all.add_argument("--skip-seed", action="store_true", help="Omite el seeding de usuarios demo en SQLite")
+
+
+    # --- SUBCOMANDO PARA SEED ---
+    subparsers.add_parser(
+        "seed",
+        help="Crea usuarios demo en SQLite a partir de las empresas en Neo4j",
+        formatter_class=CleanHelpFormatter,
+    )
 
     return parser
 
