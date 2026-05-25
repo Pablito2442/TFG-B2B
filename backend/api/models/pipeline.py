@@ -1,9 +1,8 @@
-# src/api/models.py
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Optional
+
 
 class PipelineRequest(BaseModel):
-    """Modelo de validación para los datos que enviará React al pulsar 'Ejecutar'."""
     rows: int = 200
     avg_degree_supplies: int = 7
     avg_degree_documents: int = 5
@@ -17,9 +16,9 @@ class PipelineRequest(BaseModel):
     clear_db: bool = True
     use_random_seed: bool = True
     seed_value: Optional[int] = 42
-    
+
+
 class LocationResponse(BaseModel):
-    """Modelo de validación para los nodos geográficos del mapa de React."""
     name: str
-    coordinates: List[float] # Espera exactamente [Longitud, Latitud]
+    coordinates: List[float]
     weight: int
