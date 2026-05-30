@@ -41,7 +41,7 @@ function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
       <div
         className={`flex items-center space-x-1.5 px-2.5 md:px-3 py-2 rounded-lg transition-colors text-sm font-medium
           ${isActive
-            ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
+            ? "bg-[var(--primary-dim)] text-[var(--primary)] border border-[oklch(0.60_0.128_158/0.22)]"
             : "text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent"
           }`}
       >
@@ -74,7 +74,7 @@ export default function Navbar() {
           href="/"
           className="flex items-center space-x-2 hover:opacity-80 transition-opacity flex-shrink-0"
         >
-          <BeakerIcon className="w-6 h-6 text-cyan-500" />
+          <BeakerIcon className="w-6 h-6 text-[var(--primary)]" />
           <span className="font-bold text-white text-lg tracking-wide hidden sm:block">
             B2B Graph Intel
           </span>

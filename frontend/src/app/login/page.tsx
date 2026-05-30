@@ -25,19 +25,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0E1117] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 mb-4">
-            <BeakerIcon className="w-7 h-7 text-cyan-400" />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--primary-dim)] border border-[oklch(0.60_0.128_158/0.22)] mb-4">
+            <BeakerIcon className="w-7 h-7 text-[var(--primary)]" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">B2B Graph Intel</h1>
-          <p className="text-slate-400 text-sm mt-1">Accede con las credenciales de tu empresa</p>
+          <p className="text-[var(--text-secondary)] text-sm mt-1">Accede con las credenciales de tu empresa</p>
         </div>
 
         {/* Card */}
-        <div className="bg-[#161B22] border border-slate-800 rounded-2xl p-8 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.6)]">
+        <div className="bg-[oklch(0.11_0_0)] border border-white/[0.10] rounded-2xl p-8 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.6)]">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1.5">
@@ -49,7 +49,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="empresa@demo.com"
-                className="w-full bg-[#0E1117] border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
+                className="w-full bg-[var(--bg-base)] border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary-dim)] transition-colors"
               />
             </div>
 
@@ -63,7 +63,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-[#0E1117] border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
+                className="w-full bg-[var(--bg-base)] border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary-dim)] transition-colors"
               />
             </div>
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-cyan-500/40 disabled:cursor-not-allowed text-[#0E1117] font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-[var(--primary)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-all"
             >
               <LockClosedIcon className="w-4 h-4" />
               {loading ? "Iniciando sesión…" : "Iniciar sesión"}
@@ -84,11 +84,11 @@ export default function LoginPage() {
           </form>
 
           {/* Demo hint */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <p className="text-xs text-slate-500 text-center mb-2">Credenciales de demo</p>
-            <div className="bg-[#0E1117] rounded-lg px-4 py-3 font-mono text-xs text-slate-400 space-y-1">
-              <div><span className="text-slate-600">email:</span> company0@demo.com</div>
-              <div><span className="text-slate-600">pass:</span>  Demo1234!</div>
+          <div className="mt-6 pt-5 border-t border-white/[0.07]">
+            <p className="text-xs text-[var(--text-muted)] text-center mb-2">Credenciales de demo</p>
+            <div className="bg-[var(--bg-base)] rounded-lg px-4 py-3 font-mono text-xs text-[var(--text-secondary)] space-y-1">
+              <div><span className="text-[var(--text-muted)]">email:</span> company0@demo.com</div>
+              <div><span className="text-[var(--text-muted)]">pass:</span>  Demo1234!</div>
             </div>
           </div>
         </div>

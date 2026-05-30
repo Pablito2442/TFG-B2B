@@ -46,8 +46,8 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-start gap-3 mb-6">
-      <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex-shrink-0">
-        <Icon className="w-5 h-5 text-cyan-400" />
+      <div className="p-2.5 rounded-xl bg-[var(--primary-dim)] border border-[oklch(0.60_0.128_158/0.22)] flex-shrink-0">
+        <Icon className="w-5 h-5 text-[var(--primary)]" />
       </div>
       <div>
         <h2 className="text-lg font-semibold text-white">{title}</h2>
@@ -195,7 +195,7 @@ export default function CompanyPage() {
                     type="text"
                     value={value}
                     onChange={(e) => setter(e.target.value)}
-                    className="w-full bg-[#0E1117] border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm placeholder-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
+                    className="w-full bg-[var(--bg-base)] border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm placeholder-slate-600 focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary-dim)] transition-colors"
                   />
                 </div>
               ))}
@@ -205,7 +205,7 @@ export default function CompanyPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-cyan-500/40 disabled:cursor-not-allowed text-[#0E1117] font-semibold rounded-lg px-5 py-2 text-sm transition-colors"
+                className="flex items-center gap-2 bg-[var(--primary)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg px-5 py-2 text-sm transition-all"
               >
                 <CheckCircleIcon className="w-4 h-4" />
                 {saving ? "Guardando…" : "Guardar cambios"}
@@ -256,7 +256,7 @@ export default function CompanyPage() {
                         value={doc.status ?? "PENDING"}
                         disabled={updatingDoc === doc.document_id}
                         onChange={(e) => handleStatusChange(doc.document_id, e.target.value)}
-                        className="bg-[#0E1117] border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50 cursor-pointer"
+                        className="bg-[var(--bg-base)] border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-[var(--primary)] disabled:opacity-50 cursor-pointer"
                       >
                         {STATUS_OPTIONS.map((s) => (
                           <option key={s} value={s}>{s}</option>

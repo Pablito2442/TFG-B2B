@@ -77,8 +77,8 @@ export default function PipelinePage() {
         <Flex justifyContent="between" alignItems="center">
           <div>
             <Title className="text-white text-4xl font-bold tracking-tight flex items-center gap-3">
-              <span className="p-2 bg-cyan-500/10 rounded-xl border border-cyan-500/20 inline-flex">
-                <AdjustmentsHorizontalIcon className="w-8 h-8 text-cyan-400" />
+              <span className="p-2 bg-[var(--primary-dim)] rounded-xl border border-[oklch(0.60_0.128_158/0.22)] inline-flex">
+                <AdjustmentsHorizontalIcon className="w-8 h-8 text-[var(--primary)]" />
               </span>
               Control de Pipeline
             </Title>

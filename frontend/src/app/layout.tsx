@@ -10,7 +10,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "B2B Graph Intelligence",
+  title: "B2B Graph Intel",
   description: "Análisis de Redes Logísticas con Neo4j",
 };
 
@@ -20,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
-      <body className={`${inter.className} bg-[#0E1117] text-slate-50 antialiased`}>
+    <html lang="es" className="dark">
+      <body className={`${inter.className} bg-background text-slate-50 antialiased`}>
         {/* La Navbar se quedará fija arriba en todas las páginas */}
         <AuthProvider>
           <Navbar />
@@ -34,7 +34,7 @@ export default function RootLayout({
           position="top-right" 
           style={{ top: '80px', right: '24px' }}
           toastOptions={{
-            className: 'bg-[#161B22]/95 border-slate-800 text-slate-200 backdrop-blur-md shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]',
+            className: 'bg-[oklch(0.11_0_0)] border-[var(--border-base)] text-[var(--text-primary)] backdrop-blur-md shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]',
           }}
         />
       </body>

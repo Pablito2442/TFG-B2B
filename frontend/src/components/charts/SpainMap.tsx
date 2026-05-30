@@ -55,8 +55,8 @@ export default function SpainMap() {
       
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 backdrop-blur-sm bg-[#0E1117]/30">
-          <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-          <span className="text-cyan-400 text-sm font-mono animate-pulse">Sincronizando nodos...</span>
+          <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mb-2"></div>
+          <span className="text-[var(--primary)] text-sm font-mono animate-pulse">Sincronizando nodos...</span>
         </div>
       )}
 

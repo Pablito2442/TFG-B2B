@@ -39,15 +39,15 @@ export default function TopologySection({ formData, setFormData }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           {/* ESCALA DE RED */}
           <div className="lg:col-span-2">
-            <div className="h-full flex flex-col justify-between bg-gradient-to-b from-[#0B0E14] to-[#080a0f] p-6 rounded-3xl border border-slate-800/60 shadow-2xl group hover:border-cyan-500/30 transition-all duration-500 relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 w-24 h-24 bg-cyan-500/5 blur-3xl rounded-full group-hover:bg-cyan-500/10 transition-colors pointer-events-none" />
+            <div className="h-full flex flex-col justify-between bg-gradient-to-b from-[#0B0E14] to-[#080a0f] p-6 rounded-2xl border border-slate-800/60 shadow-2xl group hover:border-[oklch(0.60_0.128_158/0.30)] transition-all duration-500 relative overflow-hidden">
+              <div className="absolute -right-4 -top-4 w-24 h-24 bg-[var(--primary-dim)] blur-3xl rounded-full pointer-events-none" />
 
               <div>
                 <Flex justifyContent="between" alignItems="center" className="mb-10">
                   <div className="space-y-1">
                     <Flex justifyContent="start" alignItems="center" className="gap-2">
-                      <div className="w-1 h-3 bg-cyan-500 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
-                      <Text className="text-cyan-500/90 text-[10px] font-black uppercase tracking-[0.4em]">Numero de Compañias</Text>
+                      <div className="w-1 h-3 bg-[var(--primary)] rounded-full shadow-[var(--shadow-glow-primary)]" />
+                      <Text className="text-[var(--primary)] text-[10px] font-black uppercase tracking-[0.4em]">Numero de Compañias</Text>
                     </Flex>
                     <div className="flex items-baseline gap-3 mt-2">
                       <span className="text-white text-5xl font-extralight tracking-tighter tabular-nums leading-none">
@@ -63,7 +63,7 @@ export default function TopologySection({ formData, setFormData }: Props) {
                   <button 
                     type="button"
                     onClick={(e) => { e.preventDefault(); setFormData({...formData, rows: 200}); }}
-                    className="p-2.5 rounded-xl bg-slate-900/80 text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 border border-slate-800 transition-all active:scale-90 group/reset shadow-lg"
+                    className="p-2.5 rounded-xl bg-slate-900/80 text-slate-500 hover:text-[var(--primary)] hover:bg-[var(--primary-dim)] border border-slate-800 transition-all active:scale-90 group/reset shadow-lg"
                     title="Resetear a 200"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover/reset:rotate-[-90deg] transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -88,9 +88,9 @@ export default function TopologySection({ formData, setFormData }: Props) {
                           setFormData({...formData, rows: Math.max(2, val)});
                         }
                       }}
-                      className="bg-slate-950/50 border-slate-800/80 text-cyan-400 text-sm h-11 rounded-xl focus:border-cyan-500/50 transition-all text-center font-mono shadow-inner [&_input::-webkit-outer-spin-button]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]" 
+                      className="bg-slate-950/50 border-slate-800/80 text-[var(--primary)] text-sm h-11 rounded-xl focus:border-[oklch(0.60_0.128_158/0.50)] transition-all text-center font-mono shadow-inner [&_input::-webkit-outer-spin-button]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]"
                     />
-                    <div className="absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" />
+                    <div className="absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-[oklch(0.60_0.128_158/0.30)] to-transparent" />
                   </div>
                 </div>
               </div>
@@ -129,12 +129,12 @@ export default function TopologySection({ formData, setFormData }: Props) {
           <div className="lg:col-span-3 space-y-5 relative">
             <div className="hidden lg:block absolute -left-4 top-4 bottom-4 w-px bg-gradient-to-b from-transparent via-slate-700/50 to-transparent" />
 
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/[0.04] to-transparent border border-slate-800/50 hover:border-cyan-500/20 transition-all">
+            <div className="p-4 rounded-2xl bg-[var(--primary-dim)] border border-slate-800/50 hover:border-[oklch(0.60_0.128_158/0.25)] transition-all">
               <Flex className="mb-3">
                 <Text className="text-slate-300 font-bold text-[11px] uppercase tracking-widest">Mixing Parameter (μ)</Text>
                 <Badge className="rounded-md font-mono text-[11px]">{formData.mu}</Badge>
               </Flex>
-              <Slider value={formData.mu} min={0.1} max={0.9} step={0.01} onChange={(_, v) => setFormData({...formData, mu: v as number})} sx={getSliderStyle('#22d3ee')} />
+              <Slider value={formData.mu} min={0.1} max={0.9} step={0.01} onChange={(_, v) => setFormData({...formData, mu: v as number})} sx={getSliderStyle('#26b5a0')} />
             </div>
 
             <div className="p-4 rounded-2xl bg-gradient-to-br from-pink-500/[0.04] to-transparent border border-slate-800/50 hover:border-pink-500/20 transition-all">
@@ -154,12 +154,12 @@ export default function TopologySection({ formData, setFormData }: Props) {
             </div>
 
             {!formData.use_random_seed && (
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-500/[0.04] to-transparent border border-cyan-800/20 animate-in fade-in slide-in-from-top-2 hover:border-cyan-500/20 transition-all">
+              <div className="p-4 rounded-2xl bg-[var(--primary-dim)] border border-[oklch(0.60_0.128_158/0.20)] animate-in fade-in slide-in-from-top-2 hover:border-[oklch(0.60_0.128_158/0.35)] transition-all">
                 <Text className="text-slate-300 font-bold text-[11px] uppercase tracking-widest mb-3">Valor de Semilla</Text>
-                <NumberInput 
-                  min={1} 
+                <NumberInput
+                  min={1}
                   enableStepper={true}
-                  value={formData.seed_value} 
+                  value={formData.seed_value}
                   onValueChange={(v) => {
                     let val = Number(v);
                     if (Number.isNaN(val) || v === undefined) {
@@ -168,7 +168,7 @@ export default function TopologySection({ formData, setFormData }: Props) {
                       setFormData({...formData, seed_value: Math.max(1, val)});
                     }
                   }}
-                  className="font-mono text-white bg-slate-950/80 border-slate-800 rounded-xl focus:border-cyan-500/50 [&_input::-webkit-outer-spin-button]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]" 
+                  className="font-mono text-white bg-slate-950/80 border-slate-800 rounded-xl focus:border-[oklch(0.60_0.128_158/0.50)] [&_input::-webkit-outer-spin-button]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]"
                 />
               </div>
             )}

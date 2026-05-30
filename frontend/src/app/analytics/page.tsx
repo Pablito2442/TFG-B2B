@@ -34,7 +34,7 @@ const EUR = (n: number, dec = 0) =>
 const EMPTY = (
   <Text className="text-slate-500 py-8 text-center">
     Sin datos — ejecuta el pipeline desde{" "}
-    <a href="/pipeline" className="text-cyan-400 underline">Pipeline</a>.
+    <a href="/pipeline" className="text-[var(--primary)] underline">Pipeline</a>.
   </Text>
 );
 
@@ -226,7 +226,7 @@ export default function AnalyticsPage() {
                           {i === 0 && <span className="mr-2 text-amber-400">★</span>}
                           {row.supplier}
                         </TableCell>
-                        <TableCell className="text-cyan-400 text-right font-mono font-semibold">
+                        <TableCell className="text-[var(--primary)] text-right font-mono font-semibold">
                           {EUR(row.total_exposure_eur)} €
                         </TableCell>
                         <TableCell className="text-slate-400 text-right">{row.avg_payment_days}</TableCell>
@@ -286,7 +286,7 @@ export default function AnalyticsPage() {
               <Card className="bg-[#1E212B] border-slate-800 text-center py-12">
                 <Text className="text-slate-500">
                   GDS no ha sido ejecutado. Descomenta las llamadas en{" "}
-                  <code className="text-cyan-400">run_analyze.py</code> y re-ejecuta el pipeline.
+                  <code className="text-[var(--primary)]">run_analyze.py</code> y re-ejecuta el pipeline.
                 </Text>
               </Card>
             ) : (
@@ -310,7 +310,7 @@ export default function AnalyticsPage() {
                             <TableCell className="text-slate-500">{i + 1}</TableCell>
                             <TableCell className="text-white font-medium">{row.legal_name}</TableCell>
                             <TableCell>
-                              <Badge color={row.role === "SUPPLIER" ? "cyan" : row.role === "BUYER" ? "violet" : "blue"}>
+                              <Badge color={row.role === "SUPPLIER" ? "teal" : row.role === "BUYER" ? "violet" : "blue"}>
                                 {row.role}
                               </Badge>
                             </TableCell>
@@ -339,7 +339,7 @@ export default function AnalyticsPage() {
                       <TableBody>
                         {gds.communities.map((row) => (
                           <TableRow key={row.communityId}>
-                            <TableCell className="text-cyan-400 font-mono">#{row.communityId}</TableCell>
+                            <TableCell className="text-[var(--primary)] font-mono">#{row.communityId}</TableCell>
                             <TableCell className="text-white text-right">{row.total_empresas}</TableCell>
                             <TableCell className="text-slate-400 text-xs">
                               {(row.ejemplos_empresas ?? []).join(", ")}
