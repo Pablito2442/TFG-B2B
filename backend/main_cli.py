@@ -44,8 +44,6 @@ def main() -> None:
     settings.ensure_data_directories()
     
     if args.command == "generate":
-        # Usamos getattr() como medida de seguridad por si ejecutas un comando 
-        # que no tenga instanciado alguno de estos parámetros en su namespace.
         artifact = run_generate(
             settings, 
             csv_target=args.csv, 
