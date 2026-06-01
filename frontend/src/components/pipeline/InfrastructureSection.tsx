@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Card, Title, Text, Button, NumberInput } from "@tremor/react";
+import { Card, Title, Text, NumberInput } from "@tremor/react";
 import { CircleStackIcon, RocketLaunchIcon } from "@heroicons/react/24/outline";
 import { PipelineFormData, StatusState } from "@/types/pipeline";
 
@@ -91,15 +91,24 @@ export default function InfrastructureSection({ formData, setFormData, loading, 
 
         {/* BOTÓN Y STATUS */}
         <div className="mt-8 relative z-10">
-          <Button
-            size="xl"
-            className="w-full py-5 bg-[var(--primary)] hover:brightness-110 border-none shadow-[var(--shadow-glow-primary)] hover:shadow-[0_0_30px_oklch(0.60_0.128_158/0.45)] transition-all text-lg font-bold tracking-wide rounded-xl group text-white"
-            loading={loading}
+          <button
+            type="button"
+            disabled={loading}
             onClick={runPipeline}
-            icon={RocketLaunchIcon}
+            className="w-full py-5 flex items-center justify-center gap-3 bg-[var(--primary)] hover:brightness-110 disabled:opacity-70 disabled:cursor-not-allowed border-none shadow-[var(--shadow-glow-primary)] hover:shadow-[0_0_30px_oklch(0.60_0.128_158/0.45)] transition-all text-lg font-bold tracking-wide rounded-xl group text-white"
           >
-            <span className="group-hover:translate-x-1 transition-transform">EJECUTAR PIPELINE</span>
-          </Button>
+            {loading ? (
+              <svg className="w-5 h-5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+              </svg>
+            ) : (
+              <RocketLaunchIcon className="w-5 h-5 shrink-0" />
+            )}
+            <span className="group-hover:translate-x-1 transition-transform">
+              {loading ? "EJECUTANDO PIPELINE" : "EJECUTAR PIPELINE"}
+            </span>
+          </button>
         </div>
       </Card>
     </div>

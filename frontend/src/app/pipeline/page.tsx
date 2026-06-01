@@ -8,9 +8,9 @@ import { AdjustmentsHorizontalIcon } from "@heroicons/react/24/outline";
 import { API_BASE } from "@/lib/api";
 
 // Importación de componentes
-import TopologySection from "@/components/forms/TopologySection";
-import InfrastructureSection from "@/components/forms/InfrastructureSection";
-import ConnectivitySection from "@/components/forms/ConnectivitySection";
+import TopologySection from "@/components/pipeline/TopologySection";
+import InfrastructureSection from "@/components/pipeline/InfrastructureSection";
+import ConnectivitySection from "@/components/pipeline/ConnectivitySection";
 import { PipelineFormData, StatusState } from "@/types/pipeline";
 
 export default function PipelinePage() {
@@ -19,6 +19,50 @@ export default function PipelinePage() {
   
   // El estado y la lógica se quedan aquí porque la página los necesita para autorizar el pipeline
   const [dbStatus, setDbStatus] = useState<"checking" | "connected" | "disconnected">("checking");
+  const pollRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopPolling = () => {
+    if (pollRef.current !== null) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const startPolling = React.useCallback((errorCount = 0) => {
+      const tick = async () => {
+        try {
+          const s = await fetch(`${API_BASE}/api/pipeline/status`).then((r) => r.json());
+          
+          if (s.status === "success") {
+            stopPolling();
+            setLoading(false);
+            toast.success("¡Pipeline completado con éxito!");
+            return;
+          }
+          if (s.status === "error") {
+            stopPolling();
+            setLoading(false);
+            toast.error(`Error en el pipeline: ${s.message}`);
+            return;
+          }
+          
+          pollRef.current = setTimeout(() => startPolling(0), 5000);
+
+        } catch (err) {
+          const newErrorCount = errorCount + 1;
+          
+          if (newErrorCount >= 5) {
+            stopPolling();
+            setLoading(false);
+            toast.error("Se ha perdido la conexión con el servidor. El pipeline podría seguir ejecutándose en segundo plano.");
+          } else {
+            pollRef.current = setTimeout(() => startPolling(newErrorCount), 5000);
+          }
+        }
+      };
+      
+      tick();
+    }, []);
 
   const [formData, setFormData] = useState<PipelineFormData>({
     rows: 200,
@@ -43,6 +87,8 @@ export default function PipelinePage() {
     }
 
     setLoading(true);
+    stopPolling();
+
     try {
       const finalData = { ...formData, rows: Math.max(2, Number(formData.rows) || 2) };
       const response = await fetch(`${API_BASE}/api/pipeline/run`, {
@@ -50,23 +96,33 @@ export default function PipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(finalData),
       });
-      
-      if (response.ok) {
-        toast.success('¡Pipeline completado con éxito!');
-      } else {
-        const data = await response.json();
-        throw new Error(data.detail || "Error en el servidor");
+
+      if (response.status === 409) {
+        toast.error("El pipeline ya está en ejecución. Espera a que termine.");
+        setLoading(false);
+        return;
       }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || `Error del servidor (${response.status})`);
+      }
+
+      // 202 Accepted — poll until done
+      toast.info("Pipeline iniciado. Esto puede tardar varios minutos...");
+      startPolling();
+
     } catch (error: any) {
       console.error("Error técnico del pipeline:", error);
+      setLoading(false);
       toast.error(
         <div className="flex flex-col gap-1">
-          <span className="font-bold">Error de ejecución</span>
-          <span className="text-slate-400 text-xs">Ha ocurrido un error al ejecutar el pipeline. Ponte en contacto con el Administrador.</span>
+          <span className="font-bold">Error de conexión</span>
+          <span className="text-slate-400 text-xs">
+            {error?.message ?? "No se pudo contactar con el servidor. ¿Está el backend iniciado?"}
+          </span>
         </div>
       );
-    } finally {
-      setLoading(false);
     }
   };
 
