@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from backend.api.dependencies import read_json
+
+router = APIRouter()
+
+
+@router.get("/gds")
+def get_gds_analytics():
+    return {
+        "bottlenecks": read_json("bottlenecks.json", default=[]),
+        "communities": read_json("communities.json", default=[]),
+    }

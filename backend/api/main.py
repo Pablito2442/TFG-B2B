@@ -4,7 +4,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api.routers import auth, dashboard, pipeline, company
+from backend.api.routers import auth, pipeline, company
+from backend.api.routers import health, dashboard
+from backend.api.routers.analytics import router as analytics_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +36,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(auth.router)
+app.include_router(health.router)
 app.include_router(dashboard.router)
+app.include_router(analytics_router)
 app.include_router(pipeline.router)
 app.include_router(company.router)

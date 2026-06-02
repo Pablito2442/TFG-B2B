@@ -1,0 +1,12 @@
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from backend.api.dependencies import read_json
+
+router = APIRouter()
+
+
+@router.get("/payment")
+def get_payment_exposure():
+    return read_json("payment_exposure.json", default=[])
