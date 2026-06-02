@@ -1,10 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
-  Card, Title, Text, Metric, Grid, Flex, Badge,
-  BarChart, BarList,
-  Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell,
   Tab, TabGroup, TabList, TabPanel, TabPanels,
 } from "@tremor/react";
 import {
@@ -18,63 +15,105 @@ import {
 import { API_BASE } from "@/lib/api";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type {
-  RiskData, DiscrepancyRow, LeadTimeRow,
-  PaymentRow, LineageRow, GdsData,
+  RiskData, DiscrepancyRow, LeadTimeRow, PaymentRow,
+  LineageRow, GdsData, ExactPathRow, ForwardRow, CommercialImpactRow,
 } from "@/types/analytics";
+import { RiskTab }          from "@/components/analytics/RiskTab";
+import { DiscrepanciesTab } from "@/components/analytics/DiscrepanciesTab";
+import { LeadTimeTab }      from "@/components/analytics/LeadTimeTab";
+import { ExposureTab }      from "@/components/analytics/ExposureTab";
+import { TraceabilityTab }  from "@/components/analytics/TraceabilityTab";
+import { GdsTab }           from "@/components/analytics/GdsTab";
 
-function rateBadge(rate: number): "red" | "yellow" | "emerald" {
-  if (rate >= 20) return "red";
-  if (rate >= 10) return "yellow";
-  return "emerald";
-}
-
-const EUR = (n: number, dec = 0) =>
-  Intl.NumberFormat("es", { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
-
-const EMPTY = (
-  <Text className="text-slate-500 py-8 text-center">
-    Sin datos — ejecuta el pipeline desde{" "}
-    <a href="/pipeline" className="text-[var(--primary)] underline">Pipeline</a>.
-  </Text>
-);
+const TAB_LABELS = [
+  "Cargando análisis de riesgo…",
+  "Cargando discrepancias…",
+  "Cargando lead time…",
+  "Cargando exposición financiera…",
+  "Cargando trazabilidad…",
+  "Cargando GDS…",
+];
 
 export default function AnalyticsPage() {
-  const [risk, setRisk] = useState<RiskData | null>(null);
+  const [activeTab, setActiveTab]     = useState(0);
+  const [loadingTab, setLoadingTab]   = useState<number | null>(null);
+  const fetchedRef                    = useRef<Set<number>>(new Set());
+
+  const [risk, setRisk]               = useState<RiskData | null>(null);
+  const [commercial, setCommercial]   = useState<CommercialImpactRow[]>([]);
   const [discrepancy, setDiscrepancy] = useState<DiscrepancyRow[]>([]);
-  const [leadTime, setLeadTime] = useState<LeadTimeRow[]>([]);
-  const [payment, setPayment] = useState<PaymentRow[]>([]);
-  const [lineage, setLineage] = useState<LineageRow[]>([]);
-  const [gds, setGds] = useState<GdsData>({ bottlenecks: [], communities: [] });
-  const [loading, setLoading] = useState(true);
+  const [leadTime, setLeadTime]       = useState<LeadTimeRow[]>([]);
+  const [payment, setPayment]         = useState<PaymentRow[]>([]);
+  const [lineage, setLineage]         = useState<LineageRow[]>([]);
+  const [gds, setGds]                 = useState<GdsData>({ bottlenecks: [], communities: [] });
+  const [exactPaths, setExactPaths]   = useState<ExactPathRow[]>([]);
+  const [forward, setForward]         = useState<ForwardRow[]>([]);
 
-  useEffect(() => {
-    Promise.all([
-      fetch(`${API_BASE}/api/dashboard/risk`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/dashboard/discrepancy-suppliers`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/dashboard/lead-time`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/dashboard/payment`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/dashboard/lineage`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/dashboard/gds`).then((r) => r.json()),
-    ])
-      .then(([riskData, discData, ltData, payData, linData, gdsData]) => {
-        setRisk(riskData?.total_supplies_edges ? riskData : null);
-        setDiscrepancy(Array.isArray(discData) ? discData : []);
-        setLeadTime(Array.isArray(ltData) ? ltData : []);
-        setPayment(Array.isArray(payData) ? payData : []);
-        setLineage(Array.isArray(linData) ? linData : []);
-        setGds(gdsData || { bottlenecks: [], communities: [] });
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  const fetchForTab = async (tab: number) => {
+    if (fetchedRef.current.has(tab)) return;
+    fetchedRef.current.add(tab);
+    setLoadingTab(tab);
 
-  if (loading) {
-    return <LoadingState text="Cargando analítica avanzada..." />;
-  }
+    try {
+      switch (tab) {
+        case 0: {
+          const [riskD, comD] = await Promise.all([
+            fetch(`${API_BASE}/api/analytics/risk`).then((r) => r.json()),
+            fetch(`${API_BASE}/api/analytics/lineage/commercial-impact`).then((r) => r.json()),
+          ]);
+          setRisk(riskD?.total_supplies_edges ? riskD : null);
+          setCommercial(Array.isArray(comD) ? comD : []);
+          break;
+        }
+        case 1: {
+          const discD = await fetch(`${API_BASE}/api/analytics/discrepancy-suppliers`).then((r) => r.json());
+          setDiscrepancy(Array.isArray(discD) ? discD : []);
+          break;
+        }
+        case 2: {
+          const ltD = await fetch(`${API_BASE}/api/analytics/lead-time`).then((r) => r.json());
+          setLeadTime(Array.isArray(ltD) ? ltD : []);
+          break;
+        }
+        case 3: {
+          const payD = await fetch(`${API_BASE}/api/analytics/payment`).then((r) => r.json());
+          setPayment(Array.isArray(payD) ? payD : []);
+          break;
+        }
+        case 4: {
+          const [linD, pathD, fwdD] = await Promise.all([
+            fetch(`${API_BASE}/api/analytics/lineage/backward`).then((r) => r.json()),
+            fetch(`${API_BASE}/api/analytics/lineage/exact-paths`).then((r) => r.json()),
+            fetch(`${API_BASE}/api/analytics/lineage/forward`).then((r) => r.json()),
+          ]);
+          setLineage(Array.isArray(linD) ? linD : []);
+          setExactPaths(Array.isArray(pathD) ? pathD : []);
+          setForward(Array.isArray(fwdD) ? fwdD : []);
+          break;
+        }
+        case 5: {
+          const gdsD = await fetch(`${API_BASE}/api/analytics/gds`).then((r) => r.json());
+          setGds(gdsD || { bottlenecks: [], communities: [] });
+          break;
+        }
+      }
+    } catch (err) {
+      console.error(`Tab ${tab} fetch failed:`, err);
+    } finally {
+      setLoadingTab(null);
+    }
+  };
+
+  // Load the first tab on mount
+  useEffect(() => { fetchForTab(0); }, []);
+
+  const handleTabChange = (index: number) => {
+    setActiveTab(index);
+    fetchForTab(index);
+  };
 
   return (
     <main className="p-6 md:p-10 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-
       <div>
         <h1 className="text-3xl font-bold text-white">Analítica Avanzada de Red</h1>
         <p className="text-slate-400 mt-1">
@@ -82,7 +121,7 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      <TabGroup>
+      <TabGroup index={activeTab} onIndexChange={handleTabChange}>
         <TabList className="border-b border-slate-800 mb-6">
           <Tab icon={ShieldExclamationIcon}>Riesgo</Tab>
           <Tab icon={ExclamationTriangleIcon}>Discrepancias</Tab>
@@ -93,270 +132,38 @@ export default function AnalyticsPage() {
         </TabList>
 
         <TabPanels>
-
-          {/* TAB 1 — RISK CONCENTRATION */}
           <TabPanel>
-            {!risk ? EMPTY : (
-              <Grid numItemsSm={1} numItemsLg={3} className="gap-6">
-                <Card decoration="top" decorationColor="red" className="bg-[#1E212B] border-slate-800">
-                  <Text className="text-slate-400">Concentración Top-{risk.top_n}</Text>
-                  <Metric className="text-white mt-2">{risk.concentration_pct}%</Metric>
-                  <Text className="text-slate-500 text-sm mt-1">
-                    de {risk.total_supplies_edges.toLocaleString()} enlaces SUPPLIES
-                  </Text>
-                </Card>
-                <Card className="bg-[#1E212B] border-slate-800 lg:col-span-2">
-                  <Title className="text-white mb-3">Reparto por proveedor</Title>
-                  <BarList
-                    data={(risk.top_suppliers ?? []).map((s) => ({
-                      name: s.name,
-                      value: s.share_pct,
-                    }))}
-                    color="red"
-                    valueFormatter={(n: number) => `${n}%`}
-                  />
-                </Card>
-              </Grid>
-            )}
+            {loadingTab === 0
+              ? <LoadingState text={TAB_LABELS[0]} />
+              : <RiskTab risk={risk} commercial={commercial} />}
           </TabPanel>
-
-          {/* TAB 2 — DISCREPANCY BY SUPPLIER */}
           <TabPanel>
-            {discrepancy.length === 0 ? EMPTY : (
-              <Card className="bg-[#1E212B] border-slate-800">
-                <Text className="text-slate-400 mb-4">
-                  Proveedores ordenados por % de facturas con discrepancia (mín. 5 facturas).
-                </Text>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell className="text-slate-400">Proveedor</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Facturas</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Con error</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Tasa</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {discrepancy.map((row) => (
-                      <TableRow key={row.supplier}>
-                        <TableCell className="text-white font-medium">{row.supplier}</TableCell>
-                        <TableCell className="text-slate-400 text-right">{row.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-slate-400 text-right">{row.flagged.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge color={rateBadge(row.discrepancy_rate_pct)}>
-                            {row.discrepancy_rate_pct}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-            )}
+            {loadingTab === 1
+              ? <LoadingState text={TAB_LABELS[1]} />
+              : <DiscrepanciesTab discrepancy={discrepancy} />}
           </TabPanel>
-
-          {/* TAB 3 — LEAD TIME */}
           <TabPanel>
-            {leadTime.length === 0 ? EMPTY : (
-              <Card className="bg-[#1E212B] border-slate-800">
-                <Text className="text-slate-400 mb-4">
-                  Retraso medio (días) respecto al baseline del producto. Negativo = adelantado.
-                </Text>
-                <BarChart
-                  className="h-72"
-                  data={leadTime}
-                  index="category"
-                  categories={["avg_delay_days"]}
-                  colors={["blue"]}
-                  valueFormatter={(n) => `${n} d`}
-                  showLegend={false}
-                />
-                <div className="mt-6 overflow-auto">
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableHeaderCell className="text-slate-400">Categoría</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">Retraso medio</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">Muestras</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">% tardíos</TableHeaderCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {leadTime.map((row) => (
-                        <TableRow key={row.category}>
-                          <TableCell className="text-white">{row.category}</TableCell>
-                          <TableCell className={`text-right font-mono ${row.avg_delay_days > 0 ? "text-red-400" : "text-emerald-400"}`}>
-                            {row.avg_delay_days > 0 ? "+" : ""}{row.avg_delay_days} d
-                          </TableCell>
-                          <TableCell className="text-slate-400 text-right">{row.sample.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">
-                            <Badge color={row.late_pct >= 60 ? "red" : row.late_pct >= 40 ? "yellow" : "emerald"}>
-                              {row.late_pct}%
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </Card>
-            )}
+            {loadingTab === 2
+              ? <LoadingState text={TAB_LABELS[2]} />
+              : <LeadTimeTab leadTime={leadTime} />}
           </TabPanel>
-
-          {/* TAB 4 — PAYMENT EXPOSURE */}
           <TabPanel>
-            {payment.length === 0 ? EMPTY : (
-              <Card className="bg-[#1E212B] border-slate-800">
-                <Text className="text-slate-400 mb-4">
-                  Suma total de importes de facturas emitidas (top-15 por exposición).
-                </Text>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell className="text-slate-400">Proveedor</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Exposición (€)</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Pago medio (d)</TableHeaderCell>
-                      <TableHeaderCell className="text-slate-400 text-right">Nº Facturas</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {payment.map((row, i) => (
-                      <TableRow key={row.supplier}>
-                        <TableCell className="text-white font-medium">
-                          {i === 0 && <span className="mr-2 text-amber-400">★</span>}
-                          {row.supplier}
-                        </TableCell>
-                        <TableCell className="text-[var(--primary)] text-right font-mono font-semibold">
-                          {EUR(row.total_exposure_eur)} €
-                        </TableCell>
-                        <TableCell className="text-slate-400 text-right">{row.avg_payment_days}</TableCell>
-                        <TableCell className="text-slate-400 text-right">{row.invoice_count.toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-            )}
+            {loadingTab === 3
+              ? <LoadingState text={TAB_LABELS[3]} />
+              : <ExposureTab payment={payment} />}
           </TabPanel>
-
-          {/* TAB 5 — DATA LINEAGE */}
           <TabPanel>
-            {lineage.length === 0 ? EMPTY : (
-              <Card className="bg-[#1E212B] border-slate-800">
-                <Text className="text-slate-400 mb-4">
-                  Top-{lineage.length} facturas con discrepancia trazadas hasta su pedido original (ordenadas por riesgo €).
-                </Text>
-                <div className="overflow-auto">
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableHeaderCell className="text-slate-400">Factura</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">Riesgo (€)</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400">Proveedor</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400">Afectado</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">Saltos</TableHeaderCell>
-                        <TableHeaderCell className="text-slate-400 text-right">Productos</TableHeaderCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {lineage.map((row) => (
-                        <TableRow key={row.factura_id}>
-                          <TableCell className="text-white font-mono text-xs">{row.factura_id}</TableCell>
-                          <TableCell className="text-red-400 text-right font-mono font-semibold">
-                            {EUR(row.riesgo_economico, 2)} €
-                          </TableCell>
-                          <TableCell className="text-slate-300">{row.proveedor}</TableCell>
-                          <TableCell className="text-slate-300">{row.afectado}</TableCell>
-                          <TableCell className="text-slate-400 text-right">{row.saltos_topologicos}</TableCell>
-                          <TableCell className="text-slate-400 text-right">
-                            {row.id_productos_implicados?.length ?? 0}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </Card>
-            )}
+            {loadingTab === 4
+              ? <LoadingState text={TAB_LABELS[4]} />
+              : <TraceabilityTab exactPaths={exactPaths} forward={forward} lineage={lineage} />}
           </TabPanel>
-
-          {/* TAB 6 — GDS */}
           <TabPanel>
-            {gds.bottlenecks.length === 0 && gds.communities.length === 0 ? (
-              <Card className="bg-[#1E212B] border-slate-800 text-center py-12">
-                <Text className="text-slate-500">
-                  GDS no ha sido ejecutado. Descomenta las llamadas en{" "}
-                  <code className="text-[var(--primary)]">run_analyze.py</code> y re-ejecuta el pipeline.
-                </Text>
-              </Card>
-            ) : (
-              <Grid numItemsSm={1} numItemsLg={2} className="gap-6">
-                {gds.bottlenecks.length > 0 && (
-                  <Card className="bg-[#1E212B] border-slate-800">
-                    <Title className="text-white mb-1">Cuellos de Botella</Title>
-                    <Text className="text-slate-400 mb-4">Top-10 por centralidad de intermediación.</Text>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableHeaderCell className="text-slate-400">#</TableHeaderCell>
-                          <TableHeaderCell className="text-slate-400">Empresa</TableHeaderCell>
-                          <TableHeaderCell className="text-slate-400">Rol</TableHeaderCell>
-                          <TableHeaderCell className="text-slate-400 text-right">Score</TableHeaderCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {gds.bottlenecks.map((row, i) => (
-                          <TableRow key={row.company_id}>
-                            <TableCell className="text-slate-500">{i + 1}</TableCell>
-                            <TableCell className="text-white font-medium">{row.legal_name}</TableCell>
-                            <TableCell>
-                              <Badge color={row.role === "SUPPLIER" ? "teal" : row.role === "BUYER" ? "violet" : "blue"}>
-                                {row.role}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-amber-400 text-right font-mono">
-                              {row.betweenness_score.toFixed(4)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </Card>
-                )}
-
-                {gds.communities.length > 0 && (
-                  <Card className="bg-[#1E212B] border-slate-800">
-                    <Title className="text-white mb-1">Comunidades Louvain</Title>
-                    <Text className="text-slate-400 mb-4">Ecosistemas logísticos detectados.</Text>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableHeaderCell className="text-slate-400">Cluster</TableHeaderCell>
-                          <TableHeaderCell className="text-slate-400 text-right">Empresas</TableHeaderCell>
-                          <TableHeaderCell className="text-slate-400">Ejemplos</TableHeaderCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {gds.communities.map((row) => (
-                          <TableRow key={row.communityId}>
-                            <TableCell className="text-[var(--primary)] font-mono">#{row.communityId}</TableCell>
-                            <TableCell className="text-white text-right">{row.total_empresas}</TableCell>
-                            <TableCell className="text-slate-400 text-xs">
-                              {(row.ejemplos_empresas ?? []).join(", ")}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </Card>
-                )}
-              </Grid>
-            )}
+            {loadingTab === 5
+              ? <LoadingState text={TAB_LABELS[5]} />
+              : <GdsTab gds={gds} />}
           </TabPanel>
-
         </TabPanels>
       </TabGroup>
-
     </main>
   );
 }

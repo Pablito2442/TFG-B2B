@@ -87,3 +87,50 @@ export function ErrorState({
     </main>
   );
 }
+
+/* ── EmptyState ─────────────────────────────────────────────── */
+interface EmptyProps {
+  isAdmin?: boolean;
+}
+
+export function EmptyState({ isAdmin = false }: EmptyProps) {
+  return (
+    <main className="p-10 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="text-center max-w-md space-y-6 animate-fade-up">
+
+        {/* Icon */}
+        <div className="w-20 h-20 mx-auto rounded-3xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 flex items-center justify-center">
+          <svg className="w-9 h-9 text-[var(--primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.3} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+          </svg>
+        </div>
+
+        {/* Text */}
+        <div className="space-y-2">
+          <p className="text-[#f1f5f9] font-bold text-2xl tracking-tight">Base de datos vacía</p>
+          <p className="text-[#64748b] text-sm leading-relaxed">
+            No se han encontrado nodos en el grafo Neo4j.
+            {isAdmin
+              ? " Ejecuta el pipeline para generar la red sintética de empresas y documentos."
+              : " Contacta con el administrador para que ejecute el pipeline de generación de datos."}
+          </p>
+        </div>
+
+        {/* Action — only for admins */}
+        {isAdmin && (
+          <a
+            href="/pipeline"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[var(--primary)] text-white text-sm font-semibold hover:opacity-90 transition-opacity duration-200 shadow-lg shadow-[var(--primary)]/20"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+            </svg>
+            Ejecutar Pipeline
+          </a>
+        )}
+
+      </div>
+    </main>
+  );
+}

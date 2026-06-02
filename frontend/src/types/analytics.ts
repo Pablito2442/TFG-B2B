@@ -37,6 +37,59 @@ export interface LineageRow {
   saltos_topologicos: number;
 }
 
+export interface ChainNode {
+  id: string;
+  tipo: string;
+  importe: number | null;
+  discrepancy: boolean;
+  estado: string | null;
+  fecha: string | null;
+}
+
+export interface ExactPathRow {
+  factura_id: string;
+  pedido_original: string;
+  proveedor: string;
+  afectado: string;
+  cadena_completa: ChainNode[];
+  saltos_topologicos: number;
+  importe_factura: number;
+  importe_pedido: number;
+}
+
+export interface ForwardDoc {
+  id: string;
+  tipo: string;
+  importe: number | null;
+  discrepancy: boolean;
+  estado: string | null;
+}
+
+export interface ForwardRow {
+  pedido_id: string;
+  importe_pedido_eur: number;
+  estado_pedido: string | null;
+  proveedor: string;
+  comprador: string;
+  total_docs_cumplimiento: number;
+  docs_con_discrepancia: number;
+  documentos_cumplimiento: ForwardDoc[];
+}
+
+export interface CommercialImpactRow {
+  pedido_id: string;
+  proveedor: string;
+  comprador: string;
+  importe_pedido_eur: number;
+  total_facturado_eur: number;
+  delta_eur: number;
+  delta_pct: number | null;
+  num_facturas: number;
+  facturas_con_discrepancia: number;
+  importe_en_discrepancia_eur: number;
+  estado_comercial: "SOBREFACTURADO" | "SUBFACTURADO" | "CONFORME";
+}
+
 export interface GdsData {
   bottlenecks: {
     company_id: string;

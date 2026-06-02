@@ -10,7 +10,8 @@ import ScaleFreeSection from "@/components/dashboard/ScaleFreeSection";
 import RankingsGrid     from "@/components/dashboard/RankingsGrid";
 import { MapPinIcon, CircleStackIcon } from "@heroicons/react/24/outline";
 import { API_BASE } from "@/lib/api";
-import { LoadingState, ErrorState } from "@/components/ui/LoadingState";
+import { LoadingState, ErrorState, EmptyState } from "@/components/ui/LoadingState";
+import { useAuth } from "@/contexts/AuthContext";
 import type { DashboardResponse } from "@/types/dashboard";
 
 const SpainMap = dynamic(() => import("@/components/charts/SpainMap"), {
@@ -27,6 +28,7 @@ const SpainMap = dynamic(() => import("@/components/charts/SpainMap"), {
    PAGE
 ══════════════════════════════════════════════════════════════════════════════ */
 export default function DashboardPage() {
+  const { user }              = useAuth();
   const [data, setData]       = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -49,24 +51,29 @@ export default function DashboardPage() {
 
   /* ── Data extraction ───────────────────────────────────────────────────── */
 
-  const nodes         = data.macro_stats.node_counts;
-  const relationships = data.macro_stats.relationship_counts;
+  const nodes         = data.macro_stats.node_counts         ?? {};
+  const relationships = data.macro_stats.relationship_counts ?? {};
+
+  const totalNodes    = Object.values(nodes).reduce((acc, v) => acc + v, 0);
+  if (totalNodes === 0) {
+    return <EmptyState isAdmin={user?.role === "admin"} />;
+  }
 
   const totalRelaciones = Object.values(relationships).reduce((acc, v) => acc + v, 0);
   const kpiValues: Record<string, number> = { ...nodes, __total_edges__: totalRelaciones };
 
-  const docTypeChartData = Object.entries(data.macro_stats.doc_type_counts).map(
+  const docTypeChartData = Object.entries(data.macro_stats.doc_type_counts ?? {}).map(
     ([name, value]) => ({ name, value })
   );
 
-  const topSuppliers = data.macro_stats.top_suppliers.map((s) => ({
+  const topSuppliers = (data.macro_stats.top_suppliers ?? []).map((s) => ({
     name: s.legal_name, value: s.supplies_out,
   }));
-  const topBuyers = data.macro_stats.top_buyers.map((b) => ({
+  const topBuyers = (data.macro_stats.top_buyers ?? []).map((b) => ({
     name: b.legal_name, value: b.supplies_in,
   }));
 
-  const seriesTemporales = data.temporal_series.map((row) => ({
+  const seriesTemporales = (data.temporal_series ?? []).map((row) => ({
     ...row,
     date: `${row.year}-${String(row.month).padStart(2, "0")}`,
   }));
@@ -94,8 +101,12 @@ export default function DashboardPage() {
 
       {/* ── FINANCIAL + DOCUMENT HEALTH STRIP ────────────────────────────── */}
       <HealthStrip
-        econVol={data.macro_stats.economic_volume}
-        docHealth={data.macro_stats.document_health}
+        econVol={data.macro_stats.economic_volume ?? {
+          invoice_count: 0, total_gross_eur: 0, total_tax_eur: 0, total_net_eur: 0,
+        }}
+        docHealth={data.macro_stats.document_health ?? {
+          total_documents: 0, flagged_documents: 0, overall_discrepancy_rate_pct: 0,
+        }}
       />
 
       {/* ── TEMPORAL CHART ────────────────────────────────────────────────── */}
@@ -109,7 +120,7 @@ export default function DashboardPage() {
       />
 
       {/* ── SCALE-FREE TOPOLOGY VALIDATION ───────────────────────────────── */}
-      <ScaleFreeSection scaleFree={data.macro_stats.scale_free_metrics} />
+      <ScaleFreeSection scaleFree={data.macro_stats.scale_free_metrics ?? {}} />
 
       {/* ── SPAIN MAP ─────────────────────────────────────────────────────── */}
       <div className="animate-fade-up bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6 md:p-8">
