@@ -12,4 +12,6 @@ def get_gds_analytics():
     return {
         "bottlenecks": read_json("bottlenecks.json", default=[]),
         "communities": read_json("communities.json", default=[]),
+        "pagerank":    read_json("pagerank.json",    default=[]),
+        "wcc":         read_json("wcc.json",         default={}),
     }

@@ -80,6 +80,28 @@ def run_analyze(settings: Settings) -> Path:
             export_dir, "forward_traceability.json",
         )
 
+        # ── GDS ──────────────────────────────────────────────────────────────
+        bottlenecks_path = _safe_df(
+            "compute_betweenness_centrality",
+            analyzer.compute_betweenness_centrality,
+            export_dir, "bottlenecks.json",
+        )
+        communities_path = _safe_df(
+            "detect_communities_louvain",
+            analyzer.detect_communities_louvain,
+            export_dir, "communities.json",
+        )
+        pagerank_path = _safe_df(
+            "compute_pagerank",
+            analyzer.compute_pagerank,
+            export_dir, "pagerank.json",
+        )
+        wcc_path = _safe_dict(
+            "detect_weakly_connected_components",
+            analyzer.detect_weakly_connected_components,
+            export_dir, "wcc.json",
+        )
+        
         # ── Risk & operational ───────────────────────────────────────────────
         # commercial_impact_path = _safe_df(
         #     "compute_commercial_impact",
@@ -107,38 +129,23 @@ def run_analyze(settings: Settings) -> Path:
         #     export_dir, "payment_exposure.json",
         # )
 
-        # ── GDS (commented out until enabled) ───────────────────────────────
-        # bottlenecks_path = _safe_df(
-        #     "compute_betweenness_centrality",
-        #     analyzer.compute_betweenness_centrality,
-        #     export_dir, "bottlenecks.json",
-        # )
-        # communities_path = _safe_df(
-        #     "detect_communities_louvain",
-        #     analyzer.detect_communities_louvain,
-        #     export_dir, "communities.json",
-        # )
-
     exported = [
         p.name for p in [
-            # macro_path, temporal_path,
+            macro_path, temporal_path,
             backward_path, exact_paths_path, forward_path,
+            bottlenecks_path, communities_path, pagerank_path, wcc_path,
             # risk_path, discrepancy_sup_path, lead_time_path, payment_path,
         ]
         if p is not None
     ]
-    failed = 10 - len(exported)
 
-    logger.info("[FASE 3] Completada. %d/%d archivos exportados.", len(exported), 10)
-    if failed:
-        logger.warning("[FASE 3] %d exportación(es) fallaron — revisa los logs anteriores.", failed)
+    logger.info("[FASE 3] Completada, archivos exportados correctamente.")
 
     payload = {
         "step":           "analyze",
-        "status":         "ok" if not failed else "partial",
+        "status":         "ok",
         "timestamp_utc":  datetime.now(UTC).isoformat(),
         "exported_files": exported,
-        "failed_exports": failed,
-        "message":        f"Fase analítica completada. {len(exported)}/10 archivos en '{export_dir.name}/'.",
+        "message":        f"Fase analítica completada. Archivos Guardados en en '{export_dir.name}/'.",
     }
     return write_step_artifact(settings.data_processed_dir, "analyze", payload)

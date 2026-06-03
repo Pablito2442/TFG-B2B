@@ -90,16 +90,32 @@ export interface CommercialImpactRow {
   estado_comercial: "SOBREFACTURADO" | "SUBFACTURADO" | "CONFORME";
 }
 
+export interface WccData {
+  total_components: number;
+  main_component_size: number;
+  main_component_pct: number;
+  isolated_nodes: number;
+  components: { component_id: number; size: number }[];
+}
+
 export interface GdsData {
   bottlenecks: {
     company_id: string;
     legal_name: string;
     role: string;
     betweenness_score: number;
+    normalized_pct: number;
   }[];
   communities: {
     communityId: number;
     total_empresas: number;
     ejemplos_empresas: string[];
   }[];
+  pagerank: {
+    company_id: string;
+    legal_name: string;
+    role: string;
+    pagerank_score: number;
+  }[];
+  wcc: WccData;
 }

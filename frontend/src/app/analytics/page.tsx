@@ -45,7 +45,7 @@ export default function AnalyticsPage() {
   const [leadTime, setLeadTime]       = useState<LeadTimeRow[]>([]);
   const [payment, setPayment]         = useState<PaymentRow[]>([]);
   const [lineage, setLineage]         = useState<LineageRow[]>([]);
-  const [gds, setGds]                 = useState<GdsData>({ bottlenecks: [], communities: [] });
+  const [gds, setGds]                 = useState<GdsData>({ bottlenecks: [], communities: [], pagerank: [], wcc: {} as GdsData["wcc"] });
   const [exactPaths, setExactPaths]   = useState<ExactPathRow[]>([]);
   const [forward, setForward]         = useState<ForwardRow[]>([]);
 
