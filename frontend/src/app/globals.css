@@ -1,56 +1,81 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────
-   Design Tokens — B2B Graph Intel
-   Palette strategy: Restrained product
-   Primary: sea-glass teal  (network edges, brand identity)
-   Accent:  warm amber       (bottlenecks, anomalies, highlights)
-   Surface: near-black canvas, pure neutral
+   Design Tokens — Light SaaS Professional
+   Primary: #6366f1 (Indigo)   Tertiary: #8b5cf6 (Violet)
+   Base bg: #f3f4f6             Surface:  #ffffff
 ───────────────────────────────────────────────────── */
 :root {
-  /* Surfaces */
-  --bg-base:        oklch(0.08 0.000 0);
-  --bg-surface:     oklch(1 0 0 / 0.04);
-  --bg-elevated:    oklch(1 0 0 / 0.07);
+  /* ── Surface scale (light) ───────────────────────── */
+  --surface:                   #ffffff;
+  --surface-dim:               #f9fafb;
+  --surface-bright:            #ffffff;
+  --surface-container-lowest:  #f3f4f6;
+  --surface-container-low:     #f9fafb;
+  --surface-container:         #f3f4f6;
+  --surface-container-high:    #e5e7eb;
+  --surface-container-highest: #d1d5db;
 
-  /* Borders */
-  --border-subtle:  oklch(1 0 0 / 0.07);
-  --border-base:    oklch(1 0 0 / 0.10);
-  --border-strong:  oklch(1 0 0 / 0.18);
+  /* ── Text ────────────────────────────────────────── */
+  --on-surface:         #111827;
+  --on-surface-variant: #374151;
+  --outline:            #6b7280;
+  --outline-variant:    #d1d5db;
 
-  /* Primary — sea-glass teal */
-  --primary:        oklch(0.60 0.128 158);
-  --primary-dim:    oklch(0.60 0.128 158 / 0.12);
-  --primary-glow:   oklch(0.60 0.128 158 / 0.28);
+  /* ── Primary (Indigo) ────────────────────────────── */
+  --primary:            #6366f1;
+  --on-primary:         #ffffff;
+  --primary-container:  #eef2ff;
+  --primary-dim:        rgba(99, 102, 241, 0.08);
+  --primary-glow:       rgba(99, 102, 241, 0.15);
 
-  /* Accent — warm amber  */
-  --accent:         oklch(0.72 0.162 68);
-  --accent-dim:     oklch(0.72 0.162 68 / 0.14);
-  --accent-glow:    oklch(0.72 0.162 68 / 0.28);
+  /* ── Tertiary (Violet) ───────────────────────────── */
+  --tertiary:           #8b5cf6;
+  --on-tertiary:        #ffffff;
+  --tertiary-container: #f5f3ff;
 
-  /* Text */
-  --text-primary:   oklch(0.94 0.000 0);
-  --text-secondary: oklch(0.68 0.012 158);
-  --text-muted:     oklch(0.55 0.006 158);
+  /* ── Semantic status ─────────────────────────────── */
+  --critical:    #EF4444;
+  --warning:     #F59E0B;
+  --success:     #10B981;
+  --info:        #3B82F6;
+  --data-accent: #8b5cf6;
 
-  /* Radius */
-  --radius-sm:  0.5rem;
-  --radius-md:  0.75rem;
-  --radius-lg:  1rem;
-  --radius-xl:  1.25rem;
+  /* ── Backgrounds ─────────────────────────────────── */
+  --background: #f9fafb;
+  --bg-base:    #f3f4f6;
 
-  /* Glows */
-  --shadow-glow-primary: 0 0 28px -6px oklch(0.60 0.128 158 / 0.35);
-  --shadow-glow-accent:  0 0 28px -6px oklch(0.72 0.162 68 / 0.30);
+  /* ── Borders ─────────────────────────────────────── */
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-base:   rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.15);
+
+  /* ── Shadows ─────────────────────────────────────── */
+  --shadow-glow-primary: 0 0 24px -4px rgba(99, 102, 241, 0.15);
+  --shadow-glow-accent:  0 0 24px -4px rgba(139, 92, 246, 0.15);
+
+  /* ── Legacy compat aliases ───────────────────────── */
+  --bg-surface:     rgba(255, 255, 255, 0.70);
+  --bg-elevated:    rgba(255, 255, 255, 0.90);
+  --accent:         #8b5cf6;
+  --accent-dim:     rgba(139, 92, 246, 0.08);
+  --accent-glow:    rgba(139, 92, 246, 0.15);
+  --text-primary:   #111827;
+  --text-secondary: #374151;
+  --text-muted:     #6b7280;
+  --radius-sm:  0.25rem;
+  --radius-md:  0.375rem;
+  --radius-lg:  0.5rem;
+  --radius-xl:  0.75rem;
 }
 
 @theme inline {
-  --color-background: var(--bg-base);
-  --color-foreground: var(--text-primary);
-  --color-primary:    oklch(0.60 0.128 158);
-  --color-accent:     oklch(0.72 0.162 68);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--on-surface);
+  --color-primary:    #6366f1;
+  --color-accent:     #8b5cf6;
+  --font-sans: var(--font-inter), 'Inter', system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 /* ─────────────────────────────────────────────────────
@@ -62,8 +87,7 @@ html {
 
 body {
   background: var(--bg-base);
-  color: var(--text-primary);
-  font-family: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
+  color: var(--on-surface);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -75,68 +99,56 @@ body {
    Selection
 ───────────────────────────────────────────────────── */
 ::selection {
-  background: oklch(0.60 0.128 158 / 0.22);
-  color: oklch(0.96 0.008 158);
+  background: rgba(99, 102, 241, 0.15);
+  color: #111827;
 }
 
 /* ─────────────────────────────────────────────────────
-   Scrollbar
+   Scrollbar — content area (light)
 ───────────────────────────────────────────────────── */
-::-webkit-scrollbar          { width: 5px; height: 5px; }
-::-webkit-scrollbar-track    { background: var(--bg-base); }
-::-webkit-scrollbar-thumb    { background: oklch(1 0 0 / 0.10); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 0.18); }
+::-webkit-scrollbar          { width: 4px; height: 4px; }
+::-webkit-scrollbar-track    { background: #f3f4f6; }
+::-webkit-scrollbar-thumb    { background: rgba(0, 0, 0, 0.15); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
+
+/* Sidebar scrollbar — dark */
+aside ::-webkit-scrollbar-track    { background: transparent; }
+aside ::-webkit-scrollbar-thumb    { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
+aside ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
 
 /* ─────────────────────────────────────────────────────
    Focus
 ───────────────────────────────────────────────────── */
 :focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 3px;
+  outline: 1.5px solid var(--primary);
+  outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
 /* ─────────────────────────────────────────────────────
-   Hero dot grid
+   Hero dot grid (repurposed for light mode)
 ───────────────────────────────────────────────────── */
 .hero-grid {
   background-image: radial-gradient(
     circle,
-    oklch(1 0 0 / 0.03) 1px,
+    rgba(0, 0, 0, 0.08) 1px,
     transparent 1px
   );
-  background-size: 30px 30px;
+  background-size: 28px 28px;
 }
 
 /* ─────────────────────────────────────────────────────
-   Glow utilities
+   Glow utilities (subtle for light mode)
 ───────────────────────────────────────────────────── */
 .glow-primary {
   box-shadow: var(--shadow-glow-primary);
 }
-.glow-primary:hover {
-  box-shadow: 0 0 36px -4px oklch(0.60 0.128 158 / 0.45);
-}
-
 .glow-accent {
   box-shadow: var(--shadow-glow-accent);
 }
-.glow-accent:hover {
-  box-shadow: 0 0 36px -4px oklch(0.72 0.162 68 / 0.40);
-}
 
 /* ─────────────────────────────────────────────────────
-   AreaChart fill
-───────────────────────────────────────────────────── */
-.chart-vivid svg defs linearGradient stop:first-child {
-  stop-opacity: 0.7 !important;
-}
-.chart-vivid svg defs linearGradient stop:last-child  {
-  stop-opacity: 0.40 !important;
-}
-
-/* ─────────────────────────────────────────────────────
-   Shimmer skeleton
+   Shimmer skeleton (light)
 ───────────────────────────────────────────────────── */
 @keyframes shimmer {
   from { background-position: -200% center; }
@@ -146,32 +158,77 @@ body {
 .shimmer {
   background: linear-gradient(
     90deg,
-    oklch(1 0 0 / 0.04) 25%,
-    oklch(1 0 0 / 0.09) 50%,
-    oklch(1 0 0 / 0.04) 75%
+    rgba(0, 0, 0, 0.03) 25%,
+    rgba(0, 0, 0, 0.07) 50%,
+    rgba(0, 0, 0, 0.03) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.6s ease-in-out infinite;
 }
 
 /* ─────────────────────────────────────────────────────
-   Entrance animation
+   Entrance animations
 ───────────────────────────────────────────────────── */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(18px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.animate-fade-up {
-  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+@keyframes fade-left {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
-.stagger-1  { animation-delay:  60ms; }
-.stagger-2  { animation-delay: 120ms; }
-.stagger-3  { animation-delay: 180ms; }
-.stagger-4  { animation-delay: 240ms; }
-.stagger-5  { animation-delay: 300ms; }
-.stagger-6  { animation-delay: 360ms; }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-up   { animation: fade-up   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-fade-left { animation: fade-left 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-fade-in   { animation: fade-in   0.55s ease both; }
+
+.stagger-1  { animation-delay:  50ms; }
+.stagger-2  { animation-delay: 100ms; }
+.stagger-3  { animation-delay: 150ms; }
+.stagger-4  { animation-delay: 200ms; }
+.stagger-5  { animation-delay: 250ms; }
+.stagger-6  { animation-delay: 300ms; }
+
+/* ─────────────────────────────────────────────────────
+   AreaChart fill
+───────────────────────────────────────────────────── */
+.chart-vivid svg defs linearGradient stop:first-child {
+  stop-opacity: 0.65 !important;
+}
+.chart-vivid svg defs linearGradient stop:last-child  {
+  stop-opacity: 0.05 !important;
+}
+
+/* ─────────────────────────────────────────────────────
+   Sidebar nav active indicator
+───────────────────────────────────────────────────── */
+.nav-item-active {
+  background: rgba(99, 102, 241, 0.10);
+  color: #6366f1;
+  border-color: rgba(99, 102, 241, 0.18);
+}
+
+/* ─────────────────────────────────────────────────────
+   Tech stack marquee
+───────────────────────────────────────────────────── */
+@keyframes tech-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-33.3334%); }
+}
+
+.animate-tech-marquee {
+  animation: tech-marquee 22s linear infinite;
+}
+
+.tech-marquee-track:hover .animate-tech-marquee {
+  animation-play-state: paused;
+}
 
 /* ─────────────────────────────────────────────────────
    Reduced motion
