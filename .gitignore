@@ -1,6 +1,8 @@
 # 1. DATOS SINTÉTICOS Y EXPORTACIONES (Big Data)
 # Ignoramos la carpeta de datos para evitar subir millones de registros que pueden ser generados localmente
 /data/
+!data/raw/
+!data/raw/**
 *.parquet
 # Formatos específicos de grafos
 *.graphml
