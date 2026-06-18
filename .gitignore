@@ -28,6 +28,7 @@ env/
 /bin/
 /share/
 pyvenv.cfg
+bash.exe.stackdump
 
 
 # 4. JUPYTER NOTEBOOKS Y DATA SCIENCE
@@ -64,3 +65,5 @@ out/
 .Trashes
 ehthumbs.db
 Thumbs.db
+.agents*
+.claude*
