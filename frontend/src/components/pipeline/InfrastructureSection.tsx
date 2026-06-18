@@ -1,116 +1,109 @@
-// components/forms/InfrastructureSection.tsx
 "use client";
 
 import React from "react";
-import { Card, Title, Text, NumberInput } from "@tremor/react";
 import { CircleStackIcon, RocketLaunchIcon } from "@heroicons/react/24/outline";
-import { PipelineFormData, StatusState } from "@/types/pipeline";
+import type { PipelineFormData, StatusState } from "@/types/pipeline";
 
 interface Props {
-  formData: PipelineFormData;
+  formData:    PipelineFormData;
   setFormData: React.Dispatch<React.SetStateAction<PipelineFormData>>;
-  loading: boolean;
-  status: StatusState;
+  loading:     boolean;
+  status:      StatusState;
   runPipeline: () => void;
 }
 
-export default function InfrastructureSection({ formData, setFormData, loading, status, runPipeline }: Props) {
+function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
-    <div className="lg:col-span-1 h-full">
-      <Card className="bg-gradient-to-b from-[#161B22] to-[#0B0E14] border-slate-800 shadow-2xl h-full flex flex-col relative overflow-hidden">
-        {/* background glow */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--primary-dim)] blur-[100px] rounded-full pointer-events-none" />
+    <button
+      type="button"
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+        checked ? "bg-indigo-600" : "bg-gray-200"
+      }`}
+    >
+      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
+    </button>
+  );
+}
 
-        <div className="flex items-center gap-3 mb-8 relative z-10">
-          <div className="p-2.5 bg-[var(--primary-dim)] rounded-xl border border-[oklch(0.60_0.128_158/0.20)]">
-            <CircleStackIcon className="w-5 h-5 text-[var(--primary)]" />
+export default function InfrastructureSection({ formData, setFormData, loading, runPipeline }: Props) {
+  return (
+    <div className="lg:col-span-1">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 h-full flex flex-col">
+
+        {/* Card header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+            <CircleStackIcon className="w-5 h-5 text-indigo-600" />
           </div>
-          <Title className="text-white text-xl tracking-wide font-semibold italic">Infraestructura</Title>
+          <div>
+            <p className="text-gray-900 font-semibold text-base">Infraestructura</p>
+            <p className="text-gray-400 text-xs">Neo4j y semilla de datos</p>
+          </div>
         </div>
 
-        <div className="space-y-5 flex-grow relative z-10">
-          {/* ITEM 1: Purgar Grafo */}
-          <div className="p-4 lg:p-5 rounded-2xl bg-slate-900/50 border border-slate-800/60 hover:border-[oklch(0.60_0.128_158/0.30)] transition-all flex justify-between items-center group">
-            <div className="space-y-1">
-              <Text className="text-slate-200 font-bold text-xs uppercase tracking-widest">Purgar Grafo</Text>
-              <Text className="text-slate-500 text-[10px] uppercase font-semibold">Limpiar DB</Text>
+        <div className="space-y-3 flex-grow">
+
+          {/* Toggle: Purgar Grafo */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50 hover:border-gray-300 transition-colors">
+            <div>
+              <p className="text-gray-800 text-sm font-semibold">Purgar Grafo</p>
+              <p className="text-gray-400 text-xs mt-0.5">Limpiar DB antes de cargar</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setFormData({...formData, clear_db: !formData.clear_db})}
-              className={`${
-                formData.clear_db ? 'bg-[var(--primary)]' : 'bg-slate-700'
-              } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 ease-in-out shadow-inner focus:outline-none`}
-            >
-              <span className={`${
-                  formData.clear_db ? 'translate-x-5' : 'translate-x-0'
-                } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-300 ease-in-out`}
-              />
-            </button>
+            <Toggle
+              checked={formData.clear_db}
+              onChange={() => setFormData({ ...formData, clear_db: !formData.clear_db })}
+            />
           </div>
 
-          {/* ITEM 2: Semilla Fija */}
-          <div className="p-4 lg:p-5 rounded-2xl bg-slate-900/50 border border-slate-800/60 hover:border-[oklch(0.60_0.128_158/0.30)] transition-all flex justify-between items-center group">
-            <div className="space-y-1">
-              <Text className="text-slate-200 font-bold text-xs uppercase tracking-widest">Semilla Fija</Text>
-              <Text className="text-slate-500 text-[10px] uppercase font-semibold">Reproducibilidad</Text>
+          {/* Toggle: Semilla Fija */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50 hover:border-gray-300 transition-colors">
+            <div>
+              <p className="text-gray-800 text-sm font-semibold">Semilla Aleatoria</p>
+              <p className="text-gray-400 text-xs mt-0.5">Reproducibilidad controlada</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setFormData({...formData, use_random_seed: !formData.use_random_seed})}
-              className={`${
-                formData.use_random_seed ? 'bg-[var(--primary)]' : 'bg-slate-700'
-              } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 ease-in-out shadow-inner focus:outline-none`}
-            >
-              <span className={`${
-                  formData.use_random_seed ? 'translate-x-5' : 'translate-x-0'
-                } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-300 ease-in-out`}
-              />
-            </button>
+            <Toggle
+              checked={formData.use_random_seed}
+              onChange={() => setFormData({ ...formData, use_random_seed: !formData.use_random_seed })}
+            />
           </div>
 
-          {/* ITEM 3: Batch Size */}
-          <div className="p-4 lg:p-5 rounded-2xl bg-[#0B0E14]/80 border border-slate-800/60 hover:border-slate-600 transition-colors">
-            <Text className="text-slate-300 font-bold text-xs uppercase tracking-widest mb-3">Batch Size</Text>
-            <NumberInput
+          {/* Batch Size */}
+          <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 hover:border-gray-300 transition-colors">
+            <p className="text-gray-700 text-xs font-semibold uppercase tracking-wider mb-2">Batch Size</p>
+            <input
+              type="number"
               min={1}
-              enableStepper={true}
               value={formData.batch_size}
-              onValueChange={(v) => {
-                let val = Number(v);
-                if (Number.isNaN(val) || v === undefined) {
-                  setFormData({...formData, batch_size: 1});
-                } else {
-                  setFormData({...formData, batch_size: Math.max(1, val)});
-                }
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setFormData({ ...formData, batch_size: Number.isNaN(v) ? 1 : Math.max(1, v) });
               }}
-              className="font-mono text-white bg-slate-950/80 border-slate-800 rounded-xl focus:border-[oklch(0.60_0.128_158/0.50)] [&_input::-webkit-outer-spin-button]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent tabular-nums"
             />
           </div>
         </div>
 
-        {/* BOTÓN Y STATUS */}
-        <div className="mt-8 relative z-10">
+        {/* Run button */}
+        <div className="mt-6">
           <button
             type="button"
             disabled={loading}
             onClick={runPipeline}
-            className="w-full py-5 flex items-center justify-center gap-3 bg-[var(--primary)] hover:brightness-110 disabled:opacity-70 disabled:cursor-not-allowed border-none shadow-[var(--shadow-glow-primary)] hover:shadow-[0_0_30px_oklch(0.60_0.128_158/0.45)] transition-all text-lg font-bold tracking-wide rounded-xl group text-white"
+            className="w-full py-4 flex items-center justify-center gap-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-xl text-white font-bold text-sm tracking-wide transition-colors shadow-sm active:scale-[0.99]"
           >
             {loading ? (
-              <svg className="w-5 h-5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
               </svg>
             ) : (
-              <RocketLaunchIcon className="w-5 h-5 shrink-0" />
+              <RocketLaunchIcon className="w-4 h-4 shrink-0" />
             )}
-            <span className="group-hover:translate-x-1 transition-transform">
-              {loading ? "EJECUTANDO PIPELINE" : "EJECUTAR PIPELINE"}
-            </span>
+            {loading ? "EJECUTANDO…" : "EJECUTAR PIPELINE"}
           </button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -1,29 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import dynamic from "next/dynamic";
-import WelcomeHeader   from "@/components/dashboard/WelcomeHeader";
-import SectionHeader   from "@/components/dashboard/SectionHeader";
-import KpiGrid         from "@/components/dashboard/KpiGrid";
-import HealthStrip     from "@/components/dashboard/HealthStrip";
-import TemporalSection from "@/components/dashboard/TemporalSection";
+import WelcomeHeader    from "@/components/dashboard/WelcomeHeader";
+import KpiGrid, { HealthStrip } from "@/components/dashboard/KpiGrid";
+import TemporalSection  from "@/components/dashboard/TemporalSection";
 import ScaleFreeSection from "@/components/dashboard/ScaleFreeSection";
-import RankingsGrid    from "@/components/dashboard/RankingsGrid";
-import { MapPinIcon }  from "@heroicons/react/24/outline";
-import { API_BASE }    from "@/lib/api";
+import RankingsGrid     from "@/components/dashboard/RankingsGrid";
+import { API_BASE }     from "@/lib/api";
 import { LoadingState, ErrorState, EmptyState } from "@/components/ui/LoadingState";
-import { useAuth }     from "@/contexts/AuthContext";
+import { useAuth }      from "@/contexts/AuthContext";
 import type { DashboardResponse } from "@/types/dashboard";
-
-const SpainMap = dynamic(() => import("@/components/charts/SpainMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[450px] w-full flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
-      <div className="w-7 h-7 border-[3px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      <span className="ml-3 text-gray-500 text-sm">Cargando motor geográfico...</span>
-    </div>
-  ),
-});
 
 export default function DashboardPage() {
   const { user }              = useAuth();
@@ -121,17 +107,6 @@ export default function DashboardPage() {
       />
 
       <ScaleFreeSection scaleFree={data.macro_stats.scale_free_metrics ?? {}} />
-
-      {/* <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        <SectionHeader
-          icon={MapPinIcon}
-          title="Distribución Geográfica"
-          subtitle="Concentración de empresas por municipio español."
-          iconColor="text-emerald-600"
-          iconBg="bg-emerald-50"
-        />
-        <SpainMap />
-      </div> */}
 
     </main>
   );

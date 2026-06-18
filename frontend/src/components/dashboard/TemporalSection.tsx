@@ -7,8 +7,13 @@ import {
   CalendarDaysIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
-import SectionHeader     from "@/components/dashboard/SectionHeader";
-import TemporalAreaChart from "@/components/dashboard/TemporalAreaChart";
+import SectionHeader from "@/components/ui/SectionHeader";
+import TemporalAreaChart, { type AreaSeries } from "@/components/charts/TemporalAreaChart";
+
+const SERIES: AreaSeries[] = [
+  { dataKey: "documents", label: "Total documentos", color: "#26b5a0"               },
+  { dataKey: "flagged",   label: "Con discrepancia", color: "#f59e0b", dashed: true  },
+];
 
 interface TemporalRow {
   date:      string;
@@ -98,7 +103,7 @@ export default function TemporalSection({ data }: TemporalSectionProps) {
 
           {/* Chart */}
           <div className="px-6 py-6">
-            <TemporalAreaChart data={data} />
+            <TemporalAreaChart data={data} series={SERIES} />
           </div>
         </>
       ) : (

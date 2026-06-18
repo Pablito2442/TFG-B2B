@@ -24,6 +24,7 @@ export interface PaymentRow {
   supplier: string;
   total_exposure_eur: number;
   avg_payment_days: number;
+  avg_agreed_days: number;
   invoice_count: number;
 }
 
@@ -57,13 +58,7 @@ export interface ExactPathRow {
   importe_pedido: number;
 }
 
-export interface ForwardDoc {
-  id: string;
-  tipo: string;
-  importe: number | null;
-  discrepancy: boolean;
-  estado: string | null;
-}
+export type ForwardDoc = Omit<ChainNode, "fecha">;
 
 export interface ForwardRow {
   pedido_id: string;
@@ -94,7 +89,7 @@ export interface SupplierScoreRow {
   supplier: string;
   avg_reliability: number;
   discrepancy_pct: number;
-  avg_delay_days: number;
+  late_pct: number;
   supply_degree: number;
   risk_score: number;
 }
@@ -114,6 +109,7 @@ export interface OverdueRow {
   overdue_invoices: number;
   total_overdue_eur: number;
   avg_payment_days: number;
+  avg_agreed_days: number;
 }
 
 export interface ContractProfileData {
@@ -122,6 +118,45 @@ export interface ContractProfileData {
   avg_reliability_score: number;
   avg_payment_terms_days: number;
   avg_contract_age_days: number;
+}
+
+export interface ContractDetailRow {
+  supplier: string;
+  region: string;
+  total_contracts: number;
+  contract_types: string[];
+  exclusive_contracts: number;
+  exclusive_pct: number;
+  avg_reliability: number;
+  avg_payment_terms_days: number;
+}
+
+export interface GeographicRiskRow {
+  region: string;
+  supplier_count: number;
+  avg_reliability: number;
+  total_invoices: number;
+  discrepancy_pct: number;
+}
+
+export interface CrossSupplierRow {
+  supplier: string;
+  region: string;
+  supply_degree: number;
+  total_invoices: number;
+  discrepancy_pct: number;
+  risk_score: number;
+  overdue_count: number;
+  overdue_eur: number;
+}
+
+export interface CrossBuyerRow {
+  buyer: string;
+  region: string;
+  supplier_count: number;
+  top_supplier_pct: number;
+  overdue_received: number;
+  overdue_eur: number;
 }
 
 export interface WccData {

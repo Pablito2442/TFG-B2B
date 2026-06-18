@@ -1,43 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Card, Title, Text, BarChart,
-  Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell,
-} from "@tremor/react";
+import BarChart from "@/components/charts/BarChart";
 import type { PaymentRow, OverdueRow } from "@/types/analytics";
-import { EMPTY, EUR, ShowMoreButton, SectionModal } from "./shared";
-
-const PAGE = 10;
+import { paymentDaysBadge, PAGE_SIZE, EUR } from "@/lib/analytics";
+import { EMPTY, ShowMoreButton, SectionModal, SectionLabel, KpiStrip, ProgressBar } from "./shared";
 
 function OverdueTable({ rows }: { rows: OverdueRow[] }) {
   return (
-    <Table>
-      <TableHead>
-        <TableRow>
-          <TableHeaderCell className="text-slate-400">Proveedor</TableHeaderCell>
-          <TableHeaderCell className="text-slate-400">Comprador</TableHeaderCell>
-          <TableHeaderCell className="text-slate-400 text-right">Facturas</TableHeaderCell>
-          <TableHeaderCell className="text-slate-400 text-right">Importe Vencido (€)</TableHeaderCell>
-          <TableHeaderCell className="text-slate-400 text-right">Plazo Medio (d)</TableHeaderCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="bg-gray-50 border-b border-gray-100">
+          {["Proveedor", "Comprador", "Facturas", "Importe Vencido (€)", "Plazo Medio"].map((h, i) => (
+            <th
+              key={h}
+              className={`px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${i > 1 ? "text-right" : "text-left"}`}
+            >
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
         {rows.map((row, i) => (
-          <TableRow key={`${row.supplier}-${row.buyer}-${i}`}>
-            <TableCell className="text-white">{row.supplier}</TableCell>
-            <TableCell className="text-slate-400">{row.buyer}</TableCell>
-            <TableCell className="text-right font-mono text-slate-300">{row.overdue_invoices}</TableCell>
-            <TableCell className="text-right font-mono text-red-400 font-semibold">
+          <tr key={`${row.supplier}-${row.buyer}-${i}`} className="hover:bg-gray-50 transition-colors">
+            <td className="px-4 py-3 text-gray-900 font-medium max-w-[160px] truncate">{row.supplier}</td>
+            <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px] truncate">{row.buyer}</td>
+            <td className="px-4 py-3 text-right font-mono text-gray-600 tabular-nums">{row.overdue_invoices}</td>
+            <td className="px-4 py-3 text-right font-mono font-semibold text-red-600 tabular-nums">
               {EUR(row.total_overdue_eur, 2)} €
-            </TableCell>
-            <TableCell className="text-right font-mono text-slate-300">
-              {row.avg_payment_days.toFixed(0)} d
-            </TableCell>
-          </TableRow>
+            </td>
+            <td className="px-4 py-3 text-right">
+              <span className={`inline-flex justify-center px-2 py-0.5 rounded-full text-xs font-mono font-semibold min-w-[3.5rem] ${paymentDaysBadge(row.avg_payment_days, row.avg_agreed_days)}`}>
+                {row.avg_payment_days.toFixed(0)} d
+              </span>
+            </td>
+          </tr>
         ))}
-      </TableBody>
-    </Table>
+      </tbody>
+    </table>
   );
 }
 
@@ -48,8 +49,18 @@ interface Props {
 
 export function ExposureTab({ payment, overdue }: Props) {
   const [showOverdueAll, setShowOverdueAll] = useState(false);
+  const [showPaymentAll, setShowPaymentAll] = useState(false);
 
   if (payment.length === 0 && overdue.length === 0) return EMPTY;
+
+  const totalExposure  = payment.reduce((s, r) => s + r.total_exposure_eur, 0);
+  const avgPaymentDays = payment.length > 0
+    ? payment.reduce((s, r) => s + r.avg_payment_days, 0) / payment.length
+    : 0;
+  const totalInvoices  = payment.reduce((s, r) => s + r.invoice_count, 0);
+  const totalOverdue   = overdue.reduce((s, r) => s + r.total_overdue_eur, 0);
+  const overduePct     = totalExposure > 0 ? (totalOverdue / totalExposure) * 100 : 0;
+  const paymentSliced  = payment.slice(0, 20);
 
   return (
     <div className="space-y-10">
@@ -57,76 +68,161 @@ export function ExposureTab({ payment, overdue }: Props) {
       {/* ── 01 · EXPOSICIÓN FINANCIERA POR PROVEEDOR ────────────── */}
       {payment.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold text-white mb-1">Exposición Financiera por Proveedor</h2>
-          <p className="text-slate-400 text-sm mb-4">Suma total de importes de facturas emitidas (top-15).</p>
-          <div className="space-y-6">
-            <Card className="bg-[#1E212B] border-slate-800">
-              <BarChart
-                className="h-64"
-                data={[...payment].reverse()}
-                index="supplier"
-                categories={["total_exposure_eur"]}
-                colors={["violet"]}
-                layout="vertical"
-                valueFormatter={(n) => `${EUR(n)} €`}
-                showLegend={false}
-              />
-            </Card>
+          <SectionLabel
+            index="01 /"
+            title="Exposición Financiera por Proveedor"
+            subtitle="Volumen total de facturas emitidas agrupado por proveedor. Identifica qué proveedores concentran mayor carga financiera en la red y dónde se acumula el riesgo de impago en caso de incumplimiento."
+          />
+          <div className="space-y-4">
 
-            <Card className="bg-[#1E212B] border-slate-800">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell className="text-slate-400">Proveedor</TableHeaderCell>
-                    <TableHeaderCell className="text-slate-400 text-right">Exposición (€)</TableHeaderCell>
-                    <TableHeaderCell className="text-slate-400 text-right">Pago medio (d)</TableHeaderCell>
-                    <TableHeaderCell className="text-slate-400 text-right">Nº Facturas</TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {payment.map((row, i) => (
-                    <TableRow key={row.supplier}>
-                      <TableCell className="text-white font-medium">
-                        {i === 0 && <span className="mr-2 text-amber-400">★</span>}
+            <KpiStrip className="mb-0" items={[
+              { label: "Exposición total",    value: `${EUR(totalExposure, 0)} €`          },
+              { label: "Pago medio global",   value: `${avgPaymentDays.toFixed(0)} d`       },
+              { label: "Facturas analizadas", value: totalInvoices.toLocaleString("es-ES") },
+            ]} />
+
+            {/* Bar chart with Top N selector */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="px-5 pt-4 pb-3 border-b border-gray-100">
+                <p className="text-gray-700 font-semibold text-sm">Exposición por proveedor</p>
+              </div>
+              <div className="p-5">
+                <BarChart
+                  data={paymentSliced}
+                  index="supplier"
+                  category="total_exposure_eur"
+                  layout="vertical"
+                  yAxisWidth={160}
+                  rowHeight={24}
+                  valueFormatter={(n) => `${EUR(n, 0)} €`}
+                  color="#8b5cf6"
+                />
+              </div>
+            </div>
+
+            {/* Payment table — paginated */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    {["#", "Proveedor", "Exposición (€)", "% del total", "Pago medio (d)", "Nº Facturas"].map((h, i) => (
+                      <th
+                        key={h}
+                        className={`px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${i > 1 ? "text-right" : "text-left"}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paymentSliced.slice(0, PAGE_SIZE).map((row, i) => (
+                    <tr key={row.supplier} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 text-gray-400 text-xs tabular-nums w-8">{i + 1}</td>
+                      <td className="px-4 py-3 text-gray-900 font-medium max-w-[200px] truncate">
                         {row.supplier}
-                      </TableCell>
-                      <TableCell className="text-[var(--primary)] text-right font-mono font-semibold">
-                        {EUR(row.total_exposure_eur)} €
-                      </TableCell>
-                      <TableCell className="text-slate-400 text-right">{row.avg_payment_days}</TableCell>
-                      <TableCell className="text-slate-400 text-right">{row.invoice_count.toLocaleString()}</TableCell>
-                    </TableRow>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold text-gray-600 tabular-nums">
+                        {EUR(row.total_exposure_eur, 0)} €
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <ProgressBar
+                            pct={totalExposure > 0 ? (row.total_exposure_eur / totalExposure) * 100 : 0}
+                            width="w-14"
+                          />
+                          <span className="font-mono text-xs text-gray-500 tabular-nums w-10 text-right">
+                            {totalExposure > 0 ? ((row.total_exposure_eur / totalExposure) * 100).toFixed(1) : "0.0"}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`inline-flex justify-center px-2 py-0.5 rounded-full text-xs font-mono font-semibold min-w-[3.5rem] ${paymentDaysBadge(row.avg_payment_days, row.avg_agreed_days)}`}>
+                          {row.avg_payment_days} d
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600 tabular-nums">
+                        {row.invoice_count.toLocaleString("es-ES")}
+                      </td>
+                    </tr>
                   ))}
-                </TableBody>
-              </Table>
-            </Card>
+                </tbody>
+              </table>
+              {paymentSliced.length > PAGE_SIZE && (
+                <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
+                  <ShowMoreButton total={paymentSliced.length} onClick={() => setShowPaymentAll(true)} />
+                </div>
+              )}
+            </div>
           </div>
         </section>
       )}
 
       {/* ── 02 · EXPOSICIÓN POR FACTURAS VENCIDAS ───────────────── */}
       <section>
-        <h2 className="text-lg font-semibold text-white mb-1">Exposición por Facturas Vencidas</h2>
-        <p className="text-slate-400 text-sm mb-4">
-          Facturas en estado OVERDUE por par proveedor-comprador, ordenadas por importe vencido.
-        </p>
+        <SectionLabel
+          index="02 /"
+          title="Exposición por Facturas Vencidas"
+          subtitle="Facturas impagadas una vez superada su fecha de vencimiento, desglosadas por par proveedor-comprador y ordenadas por importe. Un volumen elevado indica riesgo de liquidez activo en la red."
+        />
         {overdue.length === 0 ? (
-          <Card className="bg-[#1E212B] border-slate-800 text-center py-8">
-            <Text className="text-emerald-400">
-              Sin facturas vencidas — la red está al corriente de pago.
-            </Text>
-          </Card>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
+            <p className="text-emerald-700 text-sm font-semibold">Sin facturas vencidas</p>
+            <p className="text-emerald-500 text-xs mt-1">La red está al corriente de pago.</p>
+          </div>
         ) : (
-          <Card className="bg-[#1E212B] border-slate-800">
-            <div className="overflow-auto">
-              <OverdueTable rows={overdue.slice(0, PAGE)} />
+          <>
+            <KpiStrip items={[
+              { label: "Importe total vencido",    value: `${EUR(totalOverdue, 0)} €`                             },
+              { label: "Pares con deuda vencida",  value: overdue.length.toString()                               },
+              { label: "% sobre exposición total", value: totalExposure > 0 ? `${overduePct.toFixed(1)}%` : "—"  },
+            ]} />
+
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <OverdueTable rows={overdue.slice(0, PAGE_SIZE)} />
+              {overdue.length > PAGE_SIZE && (
+                <div className="px-5 pb-4">
+                  <ShowMoreButton total={overdue.length} onClick={() => setShowOverdueAll(true)} />
+                </div>
+              )}
             </div>
-            {overdue.length > PAGE && (
-              <ShowMoreButton total={overdue.length} onClick={() => setShowOverdueAll(true)} />
-            )}
-          </Card>
+          </>
         )}
       </section>
+
+      <SectionModal
+        title="Exposición Financiera — Top 20 proveedores"
+        open={showPaymentAll}
+        onClose={() => setShowPaymentAll(false)}
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              {["#", "Proveedor", "Exposición (€)", "% del total", "Pago medio (d)", "Nº Facturas"].map((h, i) => (
+                <th key={h} className={`px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${i > 1 ? "text-right" : "text-left"}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {paymentSliced.map((row, i) => (
+              <tr key={row.supplier} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 text-gray-400 text-xs tabular-nums w-8">{i + 1}</td>
+                <td className="px-4 py-3 text-gray-900 font-medium max-w-[200px] truncate">{row.supplier}</td>
+                <td className="px-4 py-3 text-right font-mono font-semibold text-indigo-600 tabular-nums">{EUR(row.total_exposure_eur, 0)} €</td>
+                <td className="px-4 py-3 text-right font-mono text-xs text-gray-500 tabular-nums">
+                  {totalExposure > 0 ? ((row.total_exposure_eur / totalExposure) * 100).toFixed(1) : "0.0"}%
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span className={`inline-flex justify-center px-2 py-0.5 rounded-full text-xs font-mono font-semibold min-w-[3.5rem] ${paymentDaysBadge(row.avg_payment_days, row.avg_agreed_days)}`}>
+                    {row.avg_payment_days} d
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-gray-600 tabular-nums">{row.invoice_count.toLocaleString("es-ES")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </SectionModal>
 
       <SectionModal
         title="Facturas Vencidas — completo"

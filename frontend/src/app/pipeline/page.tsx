@@ -2,12 +2,10 @@
 "use client";
 
 import { toast } from 'sonner';
-import React, { useState, useEffect } from "react";
-import { Title, Text, Flex } from "@tremor/react";
+import React, { useState } from "react";
 import { AdjustmentsHorizontalIcon } from "@heroicons/react/24/outline";
 import { API_BASE } from "@/lib/api";
 
-// Importación de componentes
 import TopologySection from "@/components/pipeline/TopologySection";
 import InfrastructureSection from "@/components/pipeline/InfrastructureSection";
 import ConnectivitySection from "@/components/pipeline/ConnectivitySection";
@@ -15,54 +13,29 @@ import { PipelineFormData, StatusState } from "@/types/pipeline";
 
 export default function PipelinePage() {
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<StatusState>({ type: null, msg: "" });
-  
-  // El estado y la lógica se quedan aquí porque la página los necesita para autorizar el pipeline
+  const [status,  setStatus]  = useState<StatusState>({ type: null, msg: "" });
   const [dbStatus, setDbStatus] = useState<"checking" | "connected" | "disconnected">("checking");
   const pollRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = () => {
-    if (pollRef.current !== null) {
-      clearTimeout(pollRef.current);
-      pollRef.current = null;
-    }
+    if (pollRef.current !== null) { clearTimeout(pollRef.current); pollRef.current = null; }
   };
 
   const startPolling = React.useCallback((errorCount = 0) => {
-      const tick = async () => {
-        try {
-          const s = await fetch(`${API_BASE}/api/pipeline/status`).then((r) => r.json());
-          
-          if (s.status === "success") {
-            stopPolling();
-            setLoading(false);
-            toast.success("¡Pipeline completado con éxito!");
-            return;
-          }
-          if (s.status === "error") {
-            stopPolling();
-            setLoading(false);
-            toast.error(`Error en el pipeline: ${s.message}`);
-            return;
-          }
-          
-          pollRef.current = setTimeout(() => startPolling(0), 5000);
-
-        } catch (err) {
-          const newErrorCount = errorCount + 1;
-          
-          if (newErrorCount >= 5) {
-            stopPolling();
-            setLoading(false);
-            toast.error("Se ha perdido la conexión con el servidor. El pipeline podría seguir ejecutándose en segundo plano.");
-          } else {
-            pollRef.current = setTimeout(() => startPolling(newErrorCount), 5000);
-          }
-        }
-      };
-      
-      tick();
-    }, []);
+    const tick = async () => {
+      try {
+        const s = await fetch(`${API_BASE}/api/pipeline/status`).then((r) => r.json());
+        if (s.status === "success") { stopPolling(); setLoading(false); toast.success("¡Pipeline completado con éxito!"); return; }
+        if (s.status === "error")   { stopPolling(); setLoading(false); toast.error(`Error en el pipeline: ${s.message}`); return; }
+        pollRef.current = setTimeout(() => startPolling(0), 5000);
+      } catch {
+        const n = errorCount + 1;
+        if (n >= 5) { stopPolling(); setLoading(false); toast.error("Se ha perdido la conexión con el servidor."); }
+        else { pollRef.current = setTimeout(() => startPolling(n), 5000); }
+      }
+    };
+    tick();
+  }, []);
 
   const [formData, setFormData] = useState<PipelineFormData>({
     rows: 200,
@@ -77,7 +50,7 @@ export default function PipelinePage() {
     batch_size: 10000,
     clear_db: true,
     use_random_seed: true,
-    seed_value: 42
+    seed_value: 42,
   });
 
   const runPipeline = async () => {
@@ -85,10 +58,8 @@ export default function PipelinePage() {
       toast.error("No se puede ejecutar. La base de datos Neo4j no está conectada.");
       return;
     }
-
     setLoading(true);
     stopPolling();
-
     try {
       const finalData = { ...formData, rows: Math.max(2, Number(formData.rows) || 2) };
       const response = await fetch(`${API_BASE}/api/pipeline/run`, {
@@ -96,63 +67,46 @@ export default function PipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(finalData),
       });
-
-      if (response.status === 409) {
-        toast.error("El pipeline ya está en ejecución. Espera a que termine.");
-        setLoading(false);
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || `Error del servidor (${response.status})`);
-      }
-
-      // 202 Accepted — poll until done
+      if (response.status === 409) { toast.error("El pipeline ya está en ejecución."); setLoading(false); return; }
+      if (!response.ok) { const d = await response.json().catch(() => ({})); throw new Error(d.detail || `Error del servidor (${response.status})`); }
       toast.info("Pipeline iniciado. Esto puede tardar varios minutos...");
       startPolling();
-
-    } catch (error: any) {
-      console.error("Error técnico del pipeline:", error);
+    } catch (error: unknown) {
       setLoading(false);
-      toast.error(
-        <div className="flex flex-col gap-1">
-          <span className="font-bold">Error de conexión</span>
-          <span className="text-slate-400 text-xs">
-            {error?.message ?? "No se pudo contactar con el servidor. ¿Está el backend iniciado?"}
-          </span>
-        </div>
-      );
+      const msg = error instanceof Error ? error.message : "No se pudo contactar con el servidor.";
+      toast.error(msg);
     }
   };
 
   return (
-    <main className="p-8 bg-[#0B0E14] min-h-screen">
-      {/* HEADER */}
-      <div className="max-w-7xl mx-auto mb-10">
-        <Flex justifyContent="between" alignItems="center">
-          <div>
-            <Title className="text-white text-4xl font-bold tracking-tight flex items-center gap-3">
-              <span className="p-2 bg-[var(--primary-dim)] rounded-xl border border-[oklch(0.60_0.128_158/0.22)] inline-flex">
-                <AdjustmentsHorizontalIcon className="w-8 h-8 text-[var(--primary)]" />
-              </span>
-              Control de Pipeline
-            </Title>
-            <Text className="text-slate-400 mt-2">Configuración del modelo sintético y orquestación Neo4j</Text>
+    <main className="p-8 bg-[var(--bg-base)] min-h-screen">
+      {/* ── HEADER ─────────────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto mb-8">
+        <div className="flex items-center gap-4">
+          <div className="p-2.5 bg-indigo-50 rounded-xl border border-indigo-100">
+            <AdjustmentsHorizontalIcon className="w-6 h-6 text-indigo-600" />
           </div>
-        </Flex>
+          <div>
+            <h1 className="text-gray-900 text-2xl font-bold tracking-tight">Control de Pipeline</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Configuración del modelo sintético y orquestación Neo4j</p>
+          </div>
+        </div>
       </div>
 
-      {/* GRID PRINCIPAL CON LOS 3 COMPONENTES */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+      {/* ── TOPOLOGY + INFRASTRUCTURE ─────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto mb-6">
         <TopologySection formData={formData} setFormData={setFormData} />
-        <InfrastructureSection 
-          formData={formData} 
-          setFormData={setFormData} 
-          loading={loading} 
-          status={status} 
-          runPipeline={runPipeline} 
+        <InfrastructureSection
+          formData={formData}
+          setFormData={setFormData}
+          loading={loading}
+          status={status}
+          runPipeline={runPipeline}
         />
+      </div>
+
+      {/* ── CONNECTIVITY ──────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto">
         <ConnectivitySection formData={formData} setFormData={setFormData} />
       </div>
     </main>

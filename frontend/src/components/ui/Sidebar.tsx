@@ -132,15 +132,20 @@ function NavContent() {
 
       {/* Secondary links */}
       <div className="border-t border-gray-800 pt-3 space-y-0.5">
-        <a
-          href="https://neo4j.com/docs/graph-data-science/current/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2.5 px-3 py-[7px] rounded-md text-sm text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors duration-150 border border-transparent"
+        <Link
+          href="/docs"
+          className={`flex items-center gap-2.5 px-3 py-[7px] rounded-md text-sm transition-colors duration-150 border ${
+            pathname === "/docs"
+              ? "bg-indigo-600 text-white border-indigo-500"
+              : "text-gray-400 hover:text-white hover:bg-gray-800 border-transparent"
+          }`}
         >
           <BookOpenIcon className="w-4 h-4 shrink-0" />
           <span className="font-medium">Documentación</span>
-        </a>
+          {pathname === "/docs" && (
+            <span className="ml-auto w-1 h-1 rounded-full bg-indigo-300 shrink-0" />
+          )}
+        </Link>
       </div>
 
       {/* User section */}

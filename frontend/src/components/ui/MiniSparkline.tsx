@@ -19,7 +19,7 @@ export default function MiniSparkline({ data, color, id, onHoverValue }: Props) 
 
   return (
     <div className="w-full h-full" onMouseLeave={() => cbRef.current?.(null)}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height={56} minWidth={1}>
         <AreaChart data={points} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">

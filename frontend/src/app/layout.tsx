@@ -29,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" data-scroll-behavior="smooth">
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-[var(--bg-base)] text-[var(--on-surface)] antialiased`}>
         <AuthProvider>
           <SidebarLayout>

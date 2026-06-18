@@ -1,25 +1,23 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useReducer, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  Tab, TabGroup, TabList, TabPanel, TabPanels,
-} from "@tremor/react";
-import {
-  ExclamationTriangleIcon,
   ShieldExclamationIcon,
+  ExclamationTriangleIcon,
   ClockIcon,
   CurrencyEuroIcon,
   LinkIcon,
   CpuChipIcon,
   DocumentTextIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
-import { API_BASE } from "@/lib/api";
 import { LoadingState } from "@/components/ui/LoadingState";
-import type {
-  RiskData, DiscrepancyRow, LeadTimeRow, PaymentRow,
-  LineageRow, GdsData, ExactPathRow, ForwardRow, CommercialImpactRow,
-  SupplierScoreRow, BuyerFragilityRow, OverdueRow, ContractProfileData,
-} from "@/types/analytics";
+import {
+  analyticsReducer,
+  INITIAL_ANALYTICS_STATE,
+  useFetchTab,
+} from "@/hooks/useFetchTab";
 import { RiskTab }          from "@/components/analytics/RiskTab";
 import { DiscrepanciesTab } from "@/components/analytics/DiscrepanciesTab";
 import { LeadTimeTab }      from "@/components/analytics/LeadTimeTab";
@@ -27,175 +25,82 @@ import { ExposureTab }      from "@/components/analytics/ExposureTab";
 import { TraceabilityTab }  from "@/components/analytics/TraceabilityTab";
 import { GdsTab }           from "@/components/analytics/GdsTab";
 import { ContractsTab }     from "@/components/analytics/ContractsTab";
+import { SynthesisTab }     from "@/components/analytics/SynthesisTab";
 
-const TAB_LABELS = [
-  "Cargando análisis de riesgo…",
-  "Cargando discrepancias…",
-  "Cargando lead time…",
-  "Cargando exposición financiera…",
-  "Cargando trazabilidad…",
-  "Cargando GDS…",
-  "Cargando perfil de contratos…",
+/* ── Tab metadata ────────────────────────────────────── */
+const TABS = [
+  { index: 0, name: "Riesgo",        description: "Concentración de proveedores y scoring compuesto", icon: ShieldExclamationIcon },
+  { index: 1, name: "Discrepancias", description: "Calidad documental y tasa de error por proveedor", icon: ExclamationTriangleIcon },
+  { index: 2, name: "Lead Time",     description: "Cumplimiento de plazos de entrega por categoría",  icon: ClockIcon },
+  { index: 3, name: "Exposición",    description: "Cartera vencida y exposición financiera activa",   icon: CurrencyEuroIcon },
+  { index: 4, name: "Trazabilidad",  description: "Rutas documentales desde factura hasta pedido",   icon: LinkIcon },
+  { index: 5, name: "GDS",           description: "Centralidad, comunidades y componentes conexos",  icon: CpuChipIcon },
+  { index: 6, name: "Contratos",     description: "Perfil de contratos y distribución por tipo",     icon: DocumentTextIcon },
+  { index: 7, name: "Síntesis",      description: "Cruce multidimensional de riesgo geográfico",     icon: SparklesIcon },
 ];
 
-export default function AnalyticsPage() {
-  const [activeTab, setActiveTab]     = useState(0);
-  const [loadingTab, setLoadingTab]   = useState<number | null>(null);
-  const fetchedRef                    = useRef<Set<number>>(new Set());
+/* ── Inner content — reads search params ─────────────── */
+function AnalyticsContent() {
+  const searchParams = useSearchParams();
+  const rawTab       = parseInt(searchParams.get("tab") ?? "0", 10);
+  const activeTab    = isNaN(rawTab) || rawTab < 0 || rawTab > 7 ? 0 : rawTab;
 
-  const [risk, setRisk]               = useState<RiskData | null>(null);
-  const [scores, setScores]           = useState<SupplierScoreRow[]>([]);
-  const [fragility, setFragility]     = useState<BuyerFragilityRow[]>([]);
-  const [discrepancy, setDiscrepancy] = useState<DiscrepancyRow[]>([]);
-  const [commercial, setCommercial]   = useState<CommercialImpactRow[]>([]);
-  const [leadTime, setLeadTime]       = useState<LeadTimeRow[]>([]);
-  const [payment, setPayment]         = useState<PaymentRow[]>([]);
-  const [overdueRows, setOverdueRows] = useState<OverdueRow[]>([]);
-  const [lineage, setLineage]         = useState<LineageRow[]>([]);
-  const [exactPaths, setExactPaths]   = useState<ExactPathRow[]>([]);
-  const [forward, setForward]         = useState<ForwardRow[]>([]);
-  const [gds, setGds]                 = useState<GdsData>({ bottlenecks: [], communities: [], pagerank: [], wcc: {} as GdsData["wcc"] });
-  const [contracts, setContracts]     = useState<ContractProfileData | null>(null);
+  const [loadingTab, setLoadingTab] = useState<number | null>(null);
+  const [state, dispatch] = useReducer(analyticsReducer, INITIAL_ANALYTICS_STATE);
 
-  const fetchForTab = async (tab: number) => {
-    if (fetchedRef.current.has(tab)) return;
-    fetchedRef.current.add(tab);
-    setLoadingTab(tab);
+  useFetchTab(activeTab, dispatch, setLoadingTab);
 
-    try {
-      switch (tab) {
-        case 0: {
-          // Tab Riesgo: concentración + score compuesto + fragilidad de comprador
-          const [riskD, scoresD, fragD] = await Promise.all([
-            fetch(`${API_BASE}/api/analytics/risk`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/risk/supplier-score`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/risk/buyer-fragility`).then((r) => r.json()),
-          ]);
-          setRisk(riskD?.total_supplies_edges ? riskD : null);
-          setScores(Array.isArray(scoresD) ? scoresD : []);
-          setFragility(Array.isArray(fragD) ? fragD : []);
-          break;
-        }
-        case 1: {
-          // Tab Discrepancias: tasa por proveedor + impacto comercial por pedido
-          const [discD, comD] = await Promise.all([
-            fetch(`${API_BASE}/api/analytics/discrepancy-suppliers`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/risk/commercial-impact`).then((r) => r.json()),
-          ]);
-          setDiscrepancy(Array.isArray(discD) ? discD : []);
-          setCommercial(Array.isArray(comD) ? comD : []);
-          break;
-        }
-        case 2: {
-          const ltD = await fetch(`${API_BASE}/api/analytics/lead-time`).then((r) => r.json());
-          setLeadTime(Array.isArray(ltD) ? ltD : []);
-          break;
-        }
-        case 3: {
-          // Tab Exposición: plazos de pago + facturas vencidas
-          const [payD, overdueD] = await Promise.all([
-            fetch(`${API_BASE}/api/analytics/payment`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/risk/overdue`).then((r) => r.json()),
-          ]);
-          setPayment(Array.isArray(payD) ? payD : []);
-          setOverdueRows(Array.isArray(overdueD) ? overdueD : []);
-          break;
-        }
-        case 4: {
-          const [linD, pathD, fwdD] = await Promise.all([
-            fetch(`${API_BASE}/api/analytics/lineage/backward`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/lineage/exact-paths`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/analytics/lineage/forward`).then((r) => r.json()),
-          ]);
-          setLineage(Array.isArray(linD) ? linD : []);
-          setExactPaths(Array.isArray(pathD) ? pathD : []);
-          setForward(Array.isArray(fwdD) ? fwdD : []);
-          break;
-        }
-        case 5: {
-          const gdsD = await fetch(`${API_BASE}/api/analytics/gds`).then((r) => r.json());
-          setGds(gdsD || { bottlenecks: [], communities: [] });
-          break;
-        }
-        case 6: {
-          // Tab Contratos: perfil estructural de la red de acuerdos SUPPLIES
-          const contractsD = await fetch(`${API_BASE}/api/analytics/risk/contracts`).then((r) => r.json());
-          setContracts(contractsD?.contract_type_distribution ? contractsD : null);
-          break;
-        }
-      }
-    } catch (err) {
-      console.error(`Tab ${tab} fetch failed:`, err);
-    } finally {
-      setLoadingTab(null);
-    }
-  };
-
-  useEffect(() => { fetchForTab(0); }, []);
-
-  const handleTabChange = (index: number) => {
-    setActiveTab(index);
-    fetchForTab(index);
-  };
+  const meta    = TABS[activeTab];
+  const TabIcon = meta.icon;
 
   return (
-    <main className="p-6 md:p-10 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Analítica Avanzada de Red</h1>
-        <p className="text-slate-400 mt-1">
-          Riesgo de concentración, calidad documental, cumplimiento operativo y exposición financiera.
-        </p>
+    <main className="p-8 max-w-7xl mx-auto space-y-6">
+
+      {/* ── Page header ──────────────────────────────── */}
+      <header className="animate-fade-up pb-4 border-b border-gray-200">
+        <div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.10em] uppercase text-gray-400 mb-2">
+          <span>Analytics</span>
+          <span>/</span>
+          <span className="text-gray-500">{meta.name}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+            <TabIcon className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900 leading-none">{meta.name}</h1>
+            <p className="text-xs text-gray-500 mt-1">{meta.description}</p>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Tab content ──────────────────────────────── */}
+      <div className="animate-fade-up stagger-1">
+        {loadingTab === activeTab ? (
+          <LoadingState text={`Cargando ${meta.name.toLowerCase()}...`} />
+        ) : (
+          <>
+            {activeTab === 0 && <RiskTab risk={state.risk} scores={state.scores} fragility={state.fragility} />}
+            {activeTab === 1 && <DiscrepanciesTab discrepancy={state.discrepancy} commercial={state.commercial} />}
+            {activeTab === 2 && <LeadTimeTab leadTime={state.leadTime} />}
+            {activeTab === 3 && <ExposureTab payment={state.payment} overdue={state.overdueRows} />}
+            {activeTab === 4 && <TraceabilityTab exactPaths={state.exactPaths} forward={state.forward} lineage={state.lineage} />}
+            {activeTab === 5 && <GdsTab gds={state.gds} />}
+            {activeTab === 6 && <ContractsTab contracts={state.contracts} contractDetail={state.contractDetail} />}
+            {activeTab === 7 && <SynthesisTab geographic={state.geographic} crossSuppliers={state.crossSuppliers} crossBuyers={state.crossBuyers} />}
+          </>
+        )}
       </div>
 
-      <TabGroup index={activeTab} onIndexChange={handleTabChange}>
-        <TabList className="border-b border-slate-800 mb-6">
-          <Tab icon={ShieldExclamationIcon}>Riesgo</Tab>
-          <Tab icon={ExclamationTriangleIcon}>Discrepancias</Tab>
-          <Tab icon={ClockIcon}>Lead Time</Tab>
-          <Tab icon={CurrencyEuroIcon}>Exposición</Tab>
-          <Tab icon={LinkIcon}>Trazabilidad</Tab>
-          <Tab icon={CpuChipIcon}>GDS</Tab>
-          <Tab icon={DocumentTextIcon}>Contratos</Tab>
-        </TabList>
-
-        <TabPanels>
-          <TabPanel>
-            {loadingTab === 0
-              ? <LoadingState text={TAB_LABELS[0]} />
-              : <RiskTab risk={risk} scores={scores} fragility={fragility} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 1
-              ? <LoadingState text={TAB_LABELS[1]} />
-              : <DiscrepanciesTab discrepancy={discrepancy} commercial={commercial} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 2
-              ? <LoadingState text={TAB_LABELS[2]} />
-              : <LeadTimeTab leadTime={leadTime} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 3
-              ? <LoadingState text={TAB_LABELS[3]} />
-              : <ExposureTab payment={payment} overdue={overdueRows} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 4
-              ? <LoadingState text={TAB_LABELS[4]} />
-              : <TraceabilityTab exactPaths={exactPaths} forward={forward} lineage={lineage} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 5
-              ? <LoadingState text={TAB_LABELS[5]} />
-              : <GdsTab gds={gds} />}
-          </TabPanel>
-          <TabPanel>
-            {loadingTab === 6
-              ? <LoadingState text={TAB_LABELS[6]} />
-              : <ContractsTab contracts={contracts} />}
-          </TabPanel>
-        </TabPanels>
-      </TabGroup>
     </main>
+  );
+}
+
+/* ── Page wrapper with Suspense for useSearchParams ───── */
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<LoadingState text="Cargando vista de analítica..." />}>
+      <AnalyticsContent />
+    </Suspense>
   );
 }
