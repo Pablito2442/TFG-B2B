@@ -19,4 +19,4 @@ jobs:
             cd /root/TFG-B2B
             git pull
             docker compose down
-            docker compose up --build -d --scale pipeline-init=0
+            docker compose up --build -d
