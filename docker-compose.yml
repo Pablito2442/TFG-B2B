@@ -105,7 +105,9 @@ services:
     restart: unless-stopped
 
   docs:
-    image: squidfunk/mkdocs-material
+    build:
+      context: .
+      dockerfile: docs/Dockerfile
     container_name: tfg-docs
     volumes:
       - .:/docs
